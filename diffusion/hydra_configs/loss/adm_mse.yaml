@@ -1,0 +1,4 @@
+diffusion_type: "adm"
+timestep_respacing: ""
+use_kl: False
+learn_sigma: False

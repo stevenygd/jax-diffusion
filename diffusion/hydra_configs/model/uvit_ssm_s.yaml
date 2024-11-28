@@ -1,0 +1,43 @@
+name: "UViT-SSM-S"
+package_name: "uvit"
+patch_size: 1
+patch_type: "vit"
+c_hidden_size: 384
+p_hidden_size: 32
+
+skip_idxs: [0, 1, 2]
+down_idxs: [0, 1, 2]
+stage_cfgs:
+  # 0 - 256x256 -> 128x128
+  - depth: 2
+    hidden_size: ${model.p_hidden_size}
+    num_heads: 6
+    attn_type: "ssm"
+    attn_kwargs:
+      d_state: 128
+    grad_checkpoint: True
+  # 1 - 128x128 -> 64x64
+  - depth: 2
+    hidden_size: 64
+    num_heads: 6
+    attn_type: "ssm"
+    attn_kwargs:
+      d_state: 128
+    grad_checkpoint: True
+  # 2 - 64x64 -> 32x32
+  - depth: 2
+    hidden_size: 128 
+    num_heads: 6
+    attn_type: "ssm"
+    attn_kwargs:
+      d_state: 128
+    grad_checkpoint: True
+  # 3 - 32x32, center stage
+  - depth: 12
+    hidden_size: 384
+    num_heads: 6
+    attn_type: "ssm"
+    attn_kwargs:
+      d_state: 256
+
+

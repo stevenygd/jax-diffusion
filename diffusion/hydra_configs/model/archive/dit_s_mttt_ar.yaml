@@ -1,0 +1,32 @@
+defaults:
+  - dit_s
+
+name: "DiT-S-mttt-ar"
+attn_type: "mttt"
+attn_kwargs:
+  mttt_type: "ar"            # Use AR for MTTT
+  mttt_kwargs:
+    # Optimization parameters
+    n_iters: 8
+    lr: 1.0                 # Inner loop learning rate
+    n_epoch: 1              
+    learnable_lr: False     # Whether LR is learnable
+    learnable_init: True    # Whether initialization is learnable.
+    # Shuffle
+    shuffle: False           # Shuffle data (input)
+    # Encoder parameters.
+    enc_dim: 256            # Encoder hidden dimension. default=head_dim
+    out_dim: null           # Encoder output dimension. default=head_dim
+    enc_layers: 2           # Number of encoder layers
+    enc_ln: True            # Whether use Layernorm in encoder.
+    enc_bias: False         # Whether use bias in encoder.
+    # Use residual
+    enc_residual: True      # Whether use encoder residual layer.
+    enc_residual_bf: False  # Whether use encoder residual apply bf LN.
+    # No Bias
+    enc_use_bias: False
+    enc_bias_init: zeros
+    # Xavier initialization
+    enc_kernel_init: xavier # Kernel initialization
+    # MiSC
+    ln_eps: 1e-5            # Epsilon for LayerNorm

@@ -1,0 +1,10 @@
+defaults:
+  - dit_s
+
+name: "DiT-S-linattn"
+attn_type: "linear"
+attn_kwargs:
+  qk_norm: False             # default is False, but divided by self.scale
+  elu: False 
+  normalizer: constant
+  scale_q: False

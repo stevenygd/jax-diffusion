@@ -1,0 +1,15 @@
+name: "SSM-XL"
+
+depth: 28
+hidden_size: 1152
+patch_size: 1     # TODO: patch size can change based
+num_heads: 16
+
+attn_type: "ssm"
+# attn_kwargs:
+  # d_expansion: 1
+  # d_state: 256
+
+dit_block_kwargs:
+  mlp_dtype: bfloat16
+  adaln_mlp_dtype: bfloat16

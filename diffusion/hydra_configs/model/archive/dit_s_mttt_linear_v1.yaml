@@ -1,0 +1,8 @@
+# Base on dit-s-mt3-linear but change initialization.
+defaults:
+  - dit_s_mttt_linear
+
+name: "DiT-S-mttt-linear-v1"
+attn_kwargs:
+  mttt_kwargs:
+    enc_kernel_init: xavier 

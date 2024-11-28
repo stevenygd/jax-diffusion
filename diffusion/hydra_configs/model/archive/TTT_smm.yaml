@@ -1,0 +1,5 @@
+defaults:
+  - TTT_s
+
+name: "TTT-Smm-lmbd-mlp"
+depth: 9

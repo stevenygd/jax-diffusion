@@ -1,0 +1,8 @@
+defaults:
+  - dit_l_ssm
+
+grad_checkpoint: False
+dit_block_kwargs:
+  grad_checkpoint_attn: True
+  grad_checkpoint_mlp: True
+  grad_checkpoint_adamlp: False

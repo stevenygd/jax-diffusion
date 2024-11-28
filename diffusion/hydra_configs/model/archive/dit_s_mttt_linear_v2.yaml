@@ -1,0 +1,7 @@
+# Base on dit-s-mt3-linear but change initialization.
+defaults:
+  - dit_s_mttt_linear
+
+name: "DiT-S-mttt-linear-v2"
+attn_kwargs:
+  scale_qkv: 1.41421         # sqrt(2)

@@ -1,0 +1,6 @@
+diffusion_type: "rectflow"
+num_timesteps: 1000
+noise_schedule: "lognorm"
+moe:
+  moe_loss_weight: 1e-2
+  z_loss_weight: 1e-3

@@ -1,0 +1,20 @@
+defaults:
+  - TTT_b
+
+patch_size: 1
+# For memory efficiency
+grad_checkpoint: False 
+scan_blocks: True 
+scan_remat: False 
+scan_remat_block_size: 4
+dit_block_kwargs:
+  grad_checkpoint_attn: False 
+  grad_checkpoint_mlp: False 
+  grad_checkpoint_adamlp: False 
+  blockwise_mlp: False 
+  blockwise_mlp_chunk_size: 128
+
+attn_kwargs:
+  mttt_kwargs:
+    max_sequence_length: 1024 
+    remat_mini_batch_group_size: -1

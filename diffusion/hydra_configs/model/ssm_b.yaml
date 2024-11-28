@@ -1,0 +1,9 @@
+defaults:
+  - dit_b
+
+name: "SSM-B"
+
+attn_type: "ssm"
+ssm_expansion: 1
+attn_kwargs:
+  d_expansion: 1

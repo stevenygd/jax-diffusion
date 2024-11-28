@@ -1,0 +1,17 @@
+defaults:
+  - dit_s
+
+name: "DiT-S-vit3-linear"
+fst_cond_type: "modulate"
+snd_cond_type: "modulate"
+attn_type: "vit3"
+attn_kwargs:
+  qk_norm: False             # default is False, but divided by self.scale
+  ttt_cfg:
+    inner_encoder: "mlp_1"
+    inner_encoder_bias: False
+    inner_encoder_init: "zero"
+    inner_lr: [1.0]
+    inner_itr: 1
+    SGD: False
+    decoder_LN: False

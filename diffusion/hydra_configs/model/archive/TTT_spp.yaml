@@ -1,0 +1,18 @@
+defaults:
+  - TTT_s
+
+name: "TTT-Spp-lmbd-mlp"
+depth: 16
+
+# For memory efficiency
+grad_checkpoint: True 
+scan_blocks: True 
+dit_block_kwargs:
+  grad_checkpoint_attn: False 
+  grad_checkpoint_mlp: False 
+  grad_checkpoint_adamlp: False 
+  blockwise_mlp: False 
+  blockwise_mlp_chunk_size: 128
+  # Mixed precision
+  mlp_dtype: "bfloat16"
+  adaln_mlp_dtype: "bfloat16"

@@ -1,0 +1,8 @@
+name: "DiT-S"
+
+depth: 12
+hidden_size: 384
+patch_size: 1     # TODO: patch size can change based
+num_heads: 6
+fst_cond_type: "modulate"
+snd_cond_type: "modulate"

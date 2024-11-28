@@ -1,0 +1,20 @@
+defaults:
+  - TTT_s
+
+name: "TTT-S-smpdiff-uvit-v5"
+patch_type: "simple_diffusion"
+skip_layers: [0, 1, 2, 3, 4]
+
+patch_size: 2
+attn_type: "ttt_lm_bd_v2"
+# For memory efficiency
+grad_checkpoint: False 
+scan_blocks: False 
+scan_remat: False 
+scan_remat_block_size: 4
+dit_block_kwargs:
+  grad_checkpoint_attn: True 
+  grad_checkpoint_mlp: False 
+  grad_checkpoint_adamlp: False 
+  blockwise_mlp: False 
+  blockwise_mlp_chunk_size: 128

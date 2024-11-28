@@ -1,0 +1,9 @@
+name: "rectflow"
+num_sampling_steps: 50
+num_fid_samples: 10_000
+cfg_scale: 1.5
+sleep_interval: 300 # 300 seconds, 5 minutes
+ref_batch: ${data_dir}/imagenet256_reference/VIRTUAL_imagenet256_labeled.npz
+per_proc_batch_size: 32
+sample_dir: "samples"
+remove_existing_sample_dir: False

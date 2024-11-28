@@ -1,0 +1,15 @@
+name: "DiT-L"
+
+depth: 24
+hidden_size: 1024
+patch_size: 1     # TODO: patch size can change based
+num_heads: 16
+fst_cond_type: "modulate"
+snd_cond_type: "modulate"
+
+attn_type: "jax"
+grad_checkpoint: False
+dit_block_kwargs:
+  grad_checkpoint_attn: False
+  grad_checkpoint_mlp: False
+  grad_checkpoint_adamlp: False

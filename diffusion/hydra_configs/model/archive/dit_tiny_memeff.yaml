@@ -1,0 +1,14 @@
+name: "DiT-Ti"
+
+depth: 12
+hidden_size: 192
+patch_size: 1     # TODO: patch size can change based
+num_heads: 3
+fst_cond_type: "modulate"
+snd_cond_type: "modulate"
+
+# Memory efficient long context
+attn_type: "diffuser"
+grad_checkpoint: False 
+attn_kwargs:
+  use_mem_efficient_attn: True

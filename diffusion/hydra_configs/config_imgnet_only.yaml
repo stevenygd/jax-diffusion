@@ -1,0 +1,71 @@
+defaults:
+ - _self_
+ - model: dit_s 
+ - inference: rectflow 
+ - loss: rectflow 
+ - opt: adamw
+
+model:
+  learn_sigma: False
+  package_name: "dit"
+
+# Path configurations
+# isolated out so that 
+data_dir: "./data"
+output_dir: "./results"
+results_dir: "${output_dir}/checkpoints"
+hydra_dir: "./hydra"
+wandb_dir: "./wandb"
+code_dir: null
+multi_process: False
+scalar: 0.08
+
+# Book keeping filled by main.py
+wandb:
+  id: null
+  entity: null
+  project: null
+  expr_name: null
+  log_on_main: True
+experiment_dir: null
+checkpoint_dir: null
+profile_dir: null
+
+# Experiment details
+expr_name: "test"
+resume: null  # will translate to python None
+
+# Data
+data_loader: "imagenet_feature_tfds"
+num_workers: 4
+image_size: 256 
+feature_path: "imagenet${image_size}_tfdata_sharded/"
+num_classes: 1000
+latent_dim: 4
+use_latent: True  # whether this is diffusion on a latent representation
+
+# Sharding
+dp_dim: -1
+fsdp_dim: 1
+tp_dim: 1
+
+# Train configurations 
+total_iters: 400_000 # final model 3M
+global_batch_size: 256
+grad_acc: 1
+global_seed: 0
+log_every: 100
+ckpt_every: 50_000
+ema_decay: 0.9999
+max_ckpt_keep: 16 
+return_aux: True
+
+# Configurate hydra logging directory
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: ${hydra_dir}
+
+# hydra:
+#   run:
+#     dir: ${hydra_dir}/${now:%Y-%M-%d}-${now:%H-%M-%S}

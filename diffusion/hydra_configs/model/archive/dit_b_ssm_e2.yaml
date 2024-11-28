@@ -1,0 +1,12 @@
+defaults:
+  - dit_b_ssm
+
+name: "DiT-B-SSM-E2"
+attn_type: "ssm"
+depth: 9
+ssm_expansion: 2
+attn_kwargs:
+  qk_norm: False             # default is False, but divided by self.scale
+  elu: False 
+  normalizer: constant
+  scale_q: False

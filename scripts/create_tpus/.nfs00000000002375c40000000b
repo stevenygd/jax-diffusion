@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# Array of TPU names
+# Initialize an empty array
+TPU_NAMES=()
+
+# Use a for loop to populate the array
+for i in {1..32}; do
+  TPU_NAMES+=("v4-8-p-$i")
+done
+SCRIPT_PATH="/mnt/disks/nfs/ujinsong/jax-DiT/scripts/create_tpus/create_tpu_ujinsong_v4x8.sh"
+
+# Function to check if a TPU exists
+function tpu_exists {
+  local TPU_NAME=$1
+  AVAILABLE_TPUS=($(gcloud compute tpus list --format="value(name)"))
+  AVAILABLE_TPUS+=($(gcloud compute tpus list --project=gcp-song --format="value(name)"))
+  
+  found=false
+  for tpu in "${AVAILABLE_TPUS[@]}"; do
+    if [[ "$tpu" == "$TPU_NAME" ]]; then
+      found=true
+      break
+    fi
+  done
+
+  if $found; then
+    return 0
+  else
+    return 1
+  fi
+}
+
+for TPU_NAME in "${TPU_NAMES[@]}"; do
+  while true; do
+    if tpu_exists "$TPU_NAME"; then
+      echo "TPU $TPU_NAME is already available. Moving to the next one..."
+      break
+    else
+      echo "Creating TPU $TPU_NAME..."
+      bash "$SCRIPT_PATH" "$TPU_NAME"
+      sleep 120  # Wait for a while before checking again
+    fi
+  done
+done
+
+echo "All TPUs have been created"
