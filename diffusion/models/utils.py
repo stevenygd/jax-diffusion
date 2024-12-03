@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import flax.linen as nn
 
+
 def precision_str_to_type(precision_str: str):
     match precision_str:
         case "bfloat16":

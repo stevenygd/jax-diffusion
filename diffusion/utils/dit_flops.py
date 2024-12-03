@@ -11,7 +11,7 @@ from diffusion.models.layers.attention import (
 )
 from diffusion.models.layers.ffn import Mlp
 from diffusion.models.layers.moe_mlp import SwitchFeedForward
-from diffusion.models.layers.mttt_lm import TTTLMBiDirAttention
+from diffusion.models.layers.ttt import TTTLMBiDirAttention
 from diffusion.utils.mt3_flops import mt3_attn_flops, mt3_lm_bdar_flops
 from diffusion.utils.vae_flops import convnet_emb_flops
 from diffusion.utils.ssm_flops import s4d_attn_flops

@@ -1,6 +1,0 @@
-defaults:
-  - TTT_b
-
-name: "TTT-SB-lmbd-mlp"
-hidden_size: 576
-num_heads: 9

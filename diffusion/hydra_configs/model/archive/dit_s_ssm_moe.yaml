@@ -1,7 +1,0 @@
-defaults:
-  - dit_s_ssm
-
-name: "DiT-S-SSM-MoE"
-dit_block_kwargs:
-  mlp_type: "moe"
-  n_experts: 8

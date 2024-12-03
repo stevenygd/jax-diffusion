@@ -15,7 +15,7 @@ For a simple single-GPU/CPU sampling script, see sample.py.
 import jax
 import hydra
 import jax.numpy as jnp
-from main import create_train_state
+from train import create_train_state
 from omegaconf import DictConfig, OmegaConf
 from utils import dit_flops 
 from pprint import pprint

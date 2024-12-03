@@ -1,7 +1,0 @@
-defaults:
-  - dit_s
-
-attn_type: "jax"
-dit_block_kwargs:
-  mlp_dtype: bfloat16
-  adaln_mlp_dtype: bfloat16

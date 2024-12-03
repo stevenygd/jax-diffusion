@@ -1,6 +1,0 @@
-defaults:
-  - dit_s_mttt_ar
-
-name: "DiT-S-mttt-bdar"
-attn_kwargs:
-  mttt_type: "bdar"           # Use bidirecitonal AR for MTTT

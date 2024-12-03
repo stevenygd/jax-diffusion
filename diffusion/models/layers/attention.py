@@ -5,18 +5,13 @@
 import jax
 import jax.numpy as jnp
 import flax.linen as nn
-from functools import partial
 from dataclasses import field
-from typing import Optional, Any 
+from typing import Dict, Any 
 from omegaconf import OmegaConf
-from diffusion.models.layers.mttt import MTTTMultiHeadSelfAttention
-from diffusion.models.layers.mttt_ar import ARMTTTMultiHeadSelfAttention, BiDirARMTTTMultiHeadSelfAttention
-from diffusion.models.layers.vittt import TTTLayer, LinearAttention as ViT3LinearAttentionLayer
-from diffusion.models.layers.attention_diffuser import FlaxAttention
+from diffusion.models.utils import Identity
 from diffusion.models.utils import precision_str_to_type
-
-
-identity = lambda x, **kwargs: x
+from diffusion.models.s4d import S4D 
+from diffusion.models.ttt import TTTLinear, TTTLinearBase, TTTMLP, TTTMLPBase
 
 
 class JaxAttention(nn.Module):
@@ -45,187 +40,6 @@ class JaxAttention(nn.Module):
         return outs
 
 
-# For better reproduction, this is direct Torch Translate.
-# NOTE: this has not fused attention.
-# NOTE: I use DiT's initialization for the DenseLayer (bias zero init)
-class TorchAttention(nn.Module):
-    dim: int
-    num_heads: int = 8
-    qkv_bias: bool = False
-    qk_norm: bool = False
-    attn_drop: float = 0.
-    proj_drop: float = 0.
-    # norm_layer: nn.Module = nn.LayerNorm,
-
-    def setup(self):
-        super().__init__()
-        # TODO: this is input [dim]
-        assert self.dim % self.num_heads == 0, 'dim should be divisible by num_heads'
-        self.head_dim = self.dim // self.num_heads
-        self.scale = self.head_dim ** -0.5
-
-        self.qkv = nn.Dense(
-            self.dim * 3, use_bias=self.qkv_bias,
-            kernel_init=nn.initializers.xavier_uniform(),
-            bias_init=nn.initializers.zeros_init()
-        )
-        # NOTE: Pytorch layernorm is eps=1e-5
-        self.q_norm = nn.LayerNorm(self.head_dim, eps=1e-5) if self.qk_norm else identity 
-        self.k_norm = nn.LayerNorm(self.head_dim, eps=1e-5) if self.qk_norm else identity 
-        self.attn_dropout = nn.Dropout(self.attn_drop)
-        self.proj = nn.Dense(
-            self.dim,
-            # TODO: check pytorch version whether use bias here?
-            kernel_init=nn.initializers.xavier_uniform(),
-            bias_init=nn.initializers.zeros_init()
-        )
-        self.proj_dropout = nn.Dropout(self.proj_drop)
-
-    def __call__(self, x, training: bool, return_aux: bool):
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
-        qkv = qkv.transpose((2, 0, 3, 1, 4))  # shape=(3, B, #heads, N, head_dim)
-        # Torch: unbined the first dimension
-        # q, k, v = qkv.unbind(0)
-        # Q, K, V will have shape: (B, #heads, N, head_dim)
-        q, k, v = qkv # shape=(B, #heads, N, head_dim)
-        q, k = self.q_norm(q), self.k_norm(k)
-        q = q * self.scale
-        # TORCH: attn = q @ k.transpose(-2, -1)
-        attn = q @ k.transpose((0, 1, 3, 2))
-        # TORCH: attn = attn.softmax(dim=-1)
-        attn = nn.softmax(attn, axis=-1)  # shape=(B, #heads, N, N)
-        attn = self.attn_dropout(attn, deterministic=not training)
-        # (B, #heads, N, N) @ (B, #heads, N, head_dim) -> (B, #heads, N, head_dim)
-        x = attn @ v  
-        # TORCH: x = x.transpose(1, 2).reshape(B, N, C)
-        x = x.transpose((0, 2, 1, 3)).reshape(B, N, C)
-        x = self.proj(x)
-        x = self.proj_dropout(x, deterministic=not training)
-        if return_aux:
-            return x, {}
-        return x
-
-
-class DiffuserAttention(nn.Module):
-    dim: int
-    num_heads: int = 8
-    qkv_bias: bool = False
-    qk_norm: bool = False
-    attn_drop: float = 0.
-    proj_drop: float = 0.
-    
-    # Specific to Diffuser Attention
-    use_mem_efficient_attn: bool = False
-    dtype: str = "float32"
-   
-    @nn.compact 
-    def __call__(self, x, training: bool, return_aux: bool):
-        outs = FlaxAttention(
-            query_dim=self.dim,
-            heads=self.num_heads,
-            dim_head=self.dim // self.num_heads, 
-            dropout=self.proj_drop,
-            use_memory_efficient_attention=self.use_mem_efficient_attn,
-            split_head_dim=False,
-            dtype=precision_str_to_type(self.dtype)
-        )(x, deterministic=not training)
-        if return_aux:
-            return outs, {}
-        return outs
-
-
-   
-class MTTTAttention(nn.Module):
-    """ Attention wrapper with MTTT backend. """
-    dim: int
-    num_heads: int = 8
-    qkv_bias: bool = False
-    qk_norm: bool = False
-    attn_drop: float = 0.
-    proj_drop: float = 0.
-    scale_q: bool = False 
-    scale_qkv: float = 1.
-    
-    # MTTT config
-    mttt_type: str = "base" # options: base, ar
-    mttt_kwargs: Optional[dict] = field(default_factory=dict)
-
-    def setup(self):
-        super().__init__()
-        # TODO: this is input [dim]
-        assert self.dim % self.num_heads == 0, 'dim should be divisible by num_heads'
-        self.head_dim = self.dim // self.num_heads
-        self.scale = self.head_dim ** -0.5
-
-        self.qkv = nn.Dense(
-            self.dim * 3, use_bias=self.qkv_bias,
-            kernel_init=nn.initializers.xavier_uniform(),
-            bias_init=nn.initializers.zeros_init()
-        )
-        # NOTE: Pytorch layernorm is eps=1e-5
-        self.q_norm = nn.LayerNorm(epsilon=1e-5) \
-            if self.qk_norm else identity 
-        self.k_norm = nn.LayerNorm(epsilon=1e-5) \
-            if self.qk_norm else identity 
-        
-        match self.mttt_type:
-            case "bdar": 
-                self.attn = BiDirARMTTTMultiHeadSelfAttention(
-                    head_dim=self.head_dim,
-                    num_heads=self.num_heads,
-                    **self.mttt_kwargs
-                )
-            case "ar": 
-                self.attn = ARMTTTMultiHeadSelfAttention(
-                    head_dim=self.head_dim,
-                    num_heads=self.num_heads,
-                    **self.mttt_kwargs
-                )
-            case "base": 
-                self.attn = MTTTMultiHeadSelfAttention(
-                    head_dim=self.head_dim,
-                    num_heads=self.num_heads,
-                    **self.mttt_kwargs
-                )
-            case _: 
-                raise NotImplemented
-            
-        self.proj = nn.Dense(
-            self.dim,
-            # TODO: check pytorch version whether use bias here?
-            kernel_init=nn.initializers.xavier_uniform(),
-            bias_init=nn.initializers.zeros_init()
-        )
-        self.proj_dropout = nn.Dropout(self.proj_drop)
-
-    def __call__(self, x, training: bool, return_aux: bool = False):
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
-        qkv = qkv.transpose((2, 0, 3, 1, 4))  # shape=(3, B, #heads, N, head_dim)
-        qkv = qkv * self.scale_qkv
-        # shape=(3, B, #heads, N, head_dim)
-        qkv = qkv.reshape(3, B, self.num_heads, N, self.head_dim)  
-        # Q, K, V will have shape: (B, #heads, N, head_dim)
-        q, k, v = qkv # shape=(B, #heads, N, head_dim)
-        
-        # NOTE: these will be added inside MT3 module
-        q, k = self.q_norm(q), self.k_norm(k)
-        if self.scale_q:
-            q = q * self.scale
-        
-        x = self.attn(q, k, v, training, return_aux) 
-        if return_aux:
-            x, attn_aux = x
-            
-        x = self.proj(x)
-        x = self.proj_dropout(x, deterministic=not training)
-        
-        if return_aux:
-            return x, attn_aux
-        return x
-
-    
 class LinearAttention(nn.Module):
     """Linear Attention Layer (https://arxiv.org/abs/2006.16236)"""
     dim: int
@@ -253,8 +67,10 @@ class LinearAttention(nn.Module):
             bias_init=nn.initializers.zeros_init()
         )
         # NOTE: Pytorch layernorm is eps=1e-5
-        self.q_norm = nn.LayerNorm(self.head_dim, eps=1e-5) if self.qk_norm else identity 
-        self.k_norm = nn.LayerNorm(self.head_dim, eps=1e-5) if self.qk_norm else identity 
+        self.q_norm = nn.LayerNorm(self.head_dim, eps=1e-5) \
+            if self.qk_norm else Identity 
+        self.k_norm = nn.LayerNorm(self.head_dim, eps=1e-5) \
+            if self.qk_norm else Identity 
         self.attn_dropout = nn.Dropout(self.attn_drop)
         self.proj = nn.Dense(
             self.dim,
@@ -295,7 +111,7 @@ class LinearAttention(nn.Module):
     def __call__(self, x, training: bool, return_aux: bool):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
-        qkv = qkv.transpose((2, 0, 3, 1, 4))  # shape=(3, B, #heads, N, head_dim)
+        qkv = qkv.transpose((2, 0, 3, 1, 4))  #shape=(3, B, #heads, N, head_dim)
         qkv = self.scale_qkv * qkv
         qkv = qkv.reshape(3, B, self.num_heads, N, self.head_dim)  
         # Q, K, V will have shape: (B, #heads, N, head_dim)
@@ -310,68 +126,360 @@ class LinearAttention(nn.Module):
         if return_aux:
             return x, {}
         return x
+   
+    
+class S4DAttention(nn.Module):
+    # Hidden dimension
+    dim: int
+    
+    # Placeholder
+    num_heads: int
+    qkv_bias: bool = False 
+   
+    # SSM configs
+    d_expansion: int = 1
+    # d_state: int = 64
+    # rnn_dim=128 outside, and d_state=self.rnn_dim
+    d_state: int = 128
+    dropout_rate: float = 0.0
+    transposed: bool = False
+    kernel_args: Dict[str, Any] = field(default_factory=dict)
+    
+    # Computation precision
+    dtype: str = "float32"
+
+    def setup(self):
+        self.h = self.dim
+        self.i = self.h * self.d_expansion
+
+        self.pre_bdense = nn.Dense(
+            self.i, 
+            dtype=precision_str_to_type(self.dtype),
+            kernel_init=nn.with_logical_partitioning(
+                nn.initializers.xavier_uniform(), 
+                ("qkv/inp", "qkv/out")),
+            bias_init=nn.initializers.zeros_init(),
+        )
+        self.pre_fdense = nn.Dense(
+            self.i, dtype=precision_str_to_type(self.dtype),
+            kernel_init=nn.with_logical_partitioning(
+                nn.initializers.xavier_uniform(), 
+                ("qkv/inp", "qkv/out")),
+            bias_init=nn.initializers.zeros_init(),
+        ) 
+        self.post_bdense = nn.Dense(
+            self.i, dtype=precision_str_to_type(self.dtype),
+            kernel_init=nn.with_logical_partitioning(
+                nn.initializers.xavier_uniform(), 
+                ("ssm/post_dense/inp", "ssm/post_dense/out")),
+            bias_init=nn.initializers.zeros_init()
+        ) 
+        self.post_fdense = nn.Dense(
+            self.i, dtype=precision_str_to_type(self.dtype),
+            kernel_init=nn.with_logical_partitioning(
+                nn.initializers.xavier_uniform(), 
+                ("ssm/post_dense/inp", "ssm/post_dense/out")),
+            bias_init=nn.initializers.zeros_init()
+        )
+        self.post_dense = nn.Dense(
+            self.i, dtype=precision_str_to_type(self.dtype),
+            kernel_init=nn.with_logical_partitioning(
+                nn.initializers.xavier_uniform(), ("proj/inp", "proj/out")),
+            bias_init=nn.initializers.zeros_init(),
+        )
+
+        self.bssm = S4D(d_model=self.i, **self.kernel_args)
+        self.fssm = S4D(d_model=self.i, **self.kernel_args)
+
+        self.dropout = nn.Dropout(rate=self.dropout_rate)
+        # self.activation = nn.gelu
+
+    def activation(self, x):
+        return nn.gelu(x.astype(jnp.float32))
+
+    def __call__(self, u, training: bool = False, return_aux: bool = False):
+        forward_u = self.activation(self.pre_fdense(u))
+        backward_u = self.activation(self.pre_bdense(jnp.flip(u, axis=1)))
+
+        forward_u, _ = self.fssm(forward_u)
+        backward_u, _ = self.bssm(backward_u)
+
+        forward_u = self.post_fdense(forward_u)
+        backward_u = jnp.flip(self.post_bdense(backward_u), axis=1)
+
+        y = jnp.multiply(forward_u, backward_u)
+        y = self.post_dense(y)
+
+        y = self.dropout(y, deterministic=not training)
+
+        if return_aux:
+            return y, {}
+
+        return y
     
     
-class ViTTTAttention(nn.Module):
-    """ViTTT Attention Layer https://github.com/stevenygd/mttt/tree/main"""
+class TTTAttention(nn.Module):
+    """Interface with DiT attention layer."""
     dim: int
     num_heads: int = 8
     qkv_bias: bool = False
     qk_norm: bool = False
     attn_drop: float = 0.
     proj_drop: float = 0.
-    ttt_cfg: Optional[Any] = field(default_factory=dict)
-    # TTT Parameters
+    mttt_type: str = "linear"
+    mttt_kwargs: Any = None
+    separate_qkv: bool = False
+    grad_checkpoint_qkv: bool = False
+    grad_checkpoint_out: bool = False
+    ttt_out_norm: bool = False # whether add normalization after ttt (bf mul)
+    proj_norm: bool = False # whether add normalization before projection
+    mult_norm: bool = True  # whether add normalization before multiplication
+    apply_gate: bool = True # whether apply gating after ttt
+    learn_token_idx: bool = True # whether learn the token idx
+    sigmoid_learnable_token_idx: bool = False # whether apply sigmoid to learnable token idx
+    use_ar_mask: bool = True # whether AR within mini-batch
+    
+    # Mixed precision
+    qkv_dtype: str = "float32"
+    qkv_ptype: str = "float32"
+    out_dtype: str = "float32"
+    out_ptype: str = "float32"
 
+    def ttt(self, ttt_layer, x, q, k, v, pos_ids):
+        q_, k_, v_, eta, inp_stat = self.get_ttt_inputs(
+            ttt_layer, x, q, k, v, position_ids=pos_ids) 
+        z, ttt_aux = ttt_layer.ttt(q_, k_, v_, eta)
+        if self.mult_norm:
+            z = ttt_layer.post_norm(z)
+        if self.ttt_out_norm:
+            z = ttt_layer.apply_gate(x, z)
+        return z, {
+            "input_stats": inp_stat,
+            "output_stats": ttt_aux
+        }
+       
+    def get_ttt_inputs(self, ttt, batch, XQ, XK, XV, position_ids):
+        B, N, F = batch.shape
+        n_mini_batch = N // ttt.mini_batch_size
+        X = batch.reshape(B, *ttt.seq_shape, ttt.width)
+
+        if ttt.config.output_ttt_stats:
+            XV_last_in_mini_batch = XV[:, :: ttt.mini_batch_size, ...].reshape(
+                B, n_mini_batch, ttt.num_heads, ttt.head_dim
+            )
+            XK_last_in_mini_batch = XK[:, :: ttt.mini_batch_size, ...].reshape(
+                B, n_mini_batch, ttt.num_heads, ttt.head_dim
+            )
+            ssl_tgt_last_in_mini_batch = XV_last_in_mini_batch - XK_last_in_mini_batch
+            ssl_tgt_mean = (XV - XK).mean(axis=1, keepdims=True).reshape(
+                B, 1, ttt.num_heads, ttt.head_dim)
+            ssl_tgt_last_in_mini_batch_from_mean_mse = (
+                (ssl_tgt_last_in_mini_batch - ssl_tgt_mean) ** 2).mean(
+                axis=(0, 2, 3)
+            )
+        else:
+            ssl_tgt_last_in_mini_batch_from_mean_mse = None
+
+        XQ = nn.with_logical_constraint(XQ, ("B", "N", "D"))
+        XK = nn.with_logical_constraint(XK, ("B", "N", "D"))
+        XV = nn.with_logical_constraint(XV, ("B", "N", "D"))
+
+        XQ = ttt._split_heads(XQ)
+        XK = ttt._split_heads(XK)
+        XV = ttt._split_heads(XV)
+        
+        if position_ids is not None:
+            freqs_cis = jnp.take(
+                ttt.freqs_cis, position_ids % ttt.mini_batch_size, axis=0)
+            XQ, XK = apply_rotary_emb(XQ, XK, freqs_cis=freqs_cis, dtype=ttt.dtype)
+
+        XQ = ttt._split_mini_batches(XQ)
+        XK = ttt._split_mini_batches(XK)
+        XV = ttt._split_mini_batches(XV)
+
+        eta = ttt.get_eta(X)
+
+        return (XQ, XK, XV, eta, {
+            "ssl_tgt_last_in_mini_batch_from_mean_mse": ssl_tgt_last_in_mini_batch_from_mean_mse,
+            "eta": eta.mean(),
+            "eta_per_step": eta.mean(axis=(0, 1, -2, -1)),
+        })
+    
     def setup(self):
-        super().__init__()
-        assert self.dim % self.num_heads == 0, 'dim should be divisible by num_heads'
         self.head_dim = self.dim // self.num_heads
-        self.scale = self.head_dim ** -0.5
-        self.ttt = TTTLayer(
-            self.dim, num_heads=self.num_heads, 
-            config=self.ttt_cfg)
+        self.mttt_kwargs.hidden_size = self.dim
+        self.mttt_kwargs.num_attention_heads = self.num_heads
+        match self.mttt_type:
+            case "linear":
+                ttt_class = TTTLinear
+            case "linear_base":
+                ttt_class = TTTLinearBase
+            case "mlp":
+                ttt_class = TTTMLP
+            case "mlp_base":
+                ttt_class = TTTMLPBase
+            case _:
+                raise NotImplementedError(
+                    f"TTT type {self.mttt_type} not implemented.")
+       
+        common_args = {
+            "width": self.dim, "num_heads": self.num_heads, 
+            "config": self.mttt_kwargs, "dtype": jnp.float32, 
+            "set_up_qkvo": False,
+            "sigmoid_learnable_token_idx": self.sigmoid_learnable_token_idx,
+            "learn_token_idx": self.learn_token_idx,
+            "use_ar_mask": self.use_ar_mask
+        } 
+        self.ttt_forward = ttt_class(**common_args)
+        self.ttt_backward = ttt_class(**common_args)
+      
+        qkv_dense = nn.Dense 
+        if self.grad_checkpoint_qkv: 
+            qkv_dense = nn.remat(
+                nn.Dense, policy=jax.checkpoint_policies.nothing_saveable)
+        self.qkv = qkv_dense(
+            self.dim * (6 if self.separate_qkv else 3), 
+            use_bias=self.qkv_bias,
+            kernel_init=nn.with_logical_partitioning(
+                nn.initializers.xavier_uniform(), 
+                ("qkv/inp", "qkv/out")),
+             bias_init=nn.with_logical_partitioning(
+                 nn.initializers.zeros_init(), ("qkv/bias")),
+            dtype=precision_str_to_type(self.qkv_dtype),
+            param_dtype=precision_str_to_type(self.qkv_ptype),
+        )
         
-    def __call__(self, x, training: bool, return_aux: bool):
-        x, loss_lst = self.ttt(x)
+        out_dense = nn.Dense
+        if self.grad_checkpoint_out:
+            out_dense = nn.remat(
+                nn.Dense, policy=jax.checkpoint_policies.nothing_saveable)
+        self.proj = out_dense(
+            self.dim,
+            kernel_init=nn.with_logical_partitioning(
+                nn.initializers.xavier_uniform(), ("proj/inp", "proj/out")),
+            bias_init=nn.initializers.zeros_init(),
+            dtype=precision_str_to_type(self.out_dtype),
+            param_dtype=precision_str_to_type(self.out_ptype),
+        )
+        if self.proj_drop > 0.:
+            self.proj_dropout = nn.Dropout(self.proj_drop) 
+        else:
+            self.proj_dropout = lambda x, **kwargs: x 
+        if self.proj_norm:
+            self.proj_ln = nn.LayerNorm()
+        else:
+            self.proj_ln = lambda x: x
+        
+        self.head_dim = self.dim // self.num_heads
+        self.mttt_kwargs.hidden_size = self.dim
+        self.mttt_kwargs.num_attention_heads = self.num_heads
+        match self.mttt_type:
+            case "linear":
+                ttt_class = TTTLinear
+            case "linear_base":
+                ttt_class = TTTLinearBase
+            case "mlp":
+                ttt_class = TTTMLP
+            case "mlp_base":
+                ttt_class = TTTMLPBase
+            case _:
+                raise NotImplementedError(
+                    f"TTT type {self.mttt_type} not implemented.")
+       
+        common_args = {
+            "width": self.dim * 2, "num_heads": self.num_heads * 2, 
+            "config": self.mttt_kwargs, "dtype": jnp.float32, 
+            "set_up_qkvo": False,
+            "sigmoid_learnable_token_idx": self.sigmoid_learnable_token_idx,
+            "learn_token_idx": self.learn_token_idx,
+            "use_ar_mask": self.use_ar_mask
+        } 
+        self.ttt_layer = ttt_class(**common_args)
+      
+        qkv_dense = nn.Dense 
+        if self.grad_checkpoint_qkv: 
+            qkv_dense = nn.remat(
+                nn.Dense, policy=jax.checkpoint_policies.nothing_saveable)
+        self.qkv = qkv_dense(
+            self.dim * (6 if self.separate_qkv else 3), 
+            use_bias=self.qkv_bias,
+            kernel_init=nn.with_logical_partitioning(
+                nn.initializers.xavier_uniform(), 
+                ("qkv/inp", "qkv/out")),
+            bias_init=nn.initializers.zeros_init(),
+            dtype=precision_str_to_type(self.qkv_dtype),
+            param_dtype=precision_str_to_type(self.qkv_ptype),
+        )
+        
+        out_dense = nn.Dense
+        if self.grad_checkpoint_out:
+            out_dense = nn.remat(
+                nn.Dense, policy=jax.checkpoint_policies.nothing_saveable)
+        self.proj = out_dense(
+            self.dim,
+            # kernel_init=nn.initializers.xavier_uniform(),
+            kernel_init=nn.with_logical_partitioning(
+                nn.initializers.xavier_uniform(), ("proj/inp", "proj/out")),
+            bias_init=nn.initializers.zeros_init(),
+            dtype=precision_str_to_type(self.out_dtype),
+            param_dtype=precision_str_to_type(self.out_ptype),
+        )
+        if self.proj_drop > 0.:
+            self.proj_dropout = nn.Dropout(self.proj_drop) 
+        else:
+            self.proj_dropout = lambda x, **kwargs: x 
+        if self.proj_norm:
+            self.proj_ln = nn.LayerNorm()
+        else:
+            self.proj_ln = lambda x: x
+        
+    def __call__(self, x, training: bool, return_aux: bool = False):
+        """[x] B, N, C"""
+        B, N, C = x.shape
+        
+        # Transform K, Q, V
+        x = x.astype(precision_str_to_type(self.qkv_dtype)) 
+        qkv = self.qkv(x)
+        qkv = qkv.astype(jnp.float32) # the output of qkv will cast to flaot32
+        if self.separate_qkv:
+            qkv = qkv.reshape(B, N, 6, -1)
+            # shape=(B, N, 6, dim) -> (6, B, N, dim) -> 6 x (B, N, dim)
+            q_f, k_f, v_f, q_b, k_b, v_b = qkv.transpose((2, 0, 1, 3)) 
+        else:
+            qkv = qkv.reshape(B, N, 3, -1)
+            # shape=(B, N, 3, dim) -> (3, B, N, dim) -> (B, N, dim)
+            q_f, k_f, v_f = qkv.transpose((2, 0, 1, 3)) 
+            q_b, k_b, v_b = q_f, k_f, v_f
+         
+        position_ids = jnp.arange(N)[None, :]
+        x_flip = jnp.flip(x, axis=-2)
+        xx = jnp.concat([x, x_flip], axis=-1)
+        
+        q_flip = jnp.flip(q_b, axis=-2)
+        qq = jnp.concat([q_f, q_flip], axis=-1)
+        
+        k_flip = jnp.flip(k_b, axis=-2)
+        kk = jnp.concat([k_f, k_flip], axis=-1)
+        
+        v_flip = jnp.flip(v_b, axis=-2)
+        vv = jnp.concat([v_f, v_flip], axis=-1)
+        
+        x, aux = self.ttt(self.ttt_layer, xx, qq, kk, vv, position_ids)
+        
+        # Combine forward and backward 
+        xf, xb = jnp.split(x, 2, axis=-1)
+        x = jnp.multiply(xf, jnp.flip(xb, axis=-2))
+        
+        # Output layer 
+        x = self.proj_ln(x)
+        x = x.astype(precision_str_to_type(self.out_dtype))
+        x = self.proj(x)
+        x = self.proj_dropout(x, deterministic=not training)
+        x = x.astype(jnp.float32) # next layer will take float32
         if return_aux:
-            data = {"inner_losses": {"bf": loss_lst, "af": loss_lst}}
-            return x, data
+            return x, {"forward": aux, "backward": aux}
         return x
     
-    
-class ViTTTLinearAttention(nn.Module):
-    """ViTTT Linear Attention Layer https://github.com/stevenygd/mttt/tree/main
-       NOTE: params just matching the Linear Attention Layer above!
-    """
-    dim: int
-    num_heads: int = 8
-    qkv_bias: bool = False
-    qk_norm: bool = False
-    attn_drop: float = 0.
-    proj_drop: float = 0.
-    # Linear Attention parameters
-    elu: bool = True                    # TODO check default params
-    normalizer: str = "adaptive"        # TODO: check default
-    scale_q: bool = False 
-    scale_qkv: float = 1.
-
-    def setup(self):
-        super().__init__()
-        assert self.dim % self.num_heads == 0, 'dim should be divisible by num_heads'
-        assert self.qkv_bias, "QKV Bias is not implemented for Linear Attention"
-        self.lin_attn = ViT3LinearAttentionLayer(
-            self.dim, num_heads=self.num_heads, 
-            config=OmegaConf.create({
-                "elu": self.elu, 
-                "normalizer": self.normalizer, 
-            }))
-        
-    def __call__(self, x, training: bool, return_aux: bool):
-        x = self.lin_attn(x)
-        if return_aux:
-            return x, {} 
-        return x
     
 
 if __name__ == "__main__":

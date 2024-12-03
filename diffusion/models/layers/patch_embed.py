@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from typing import Tuple, List
 from dataclasses import field
 import numpy as np
-from diffusers.models.vae_flax import FlaxDownEncoderBlock2D, FlaxUpDecoderBlock2D
+
 
 #################################################################################
 # https://github.com/huggingface/pytorch-image-models/blob/
@@ -26,7 +26,7 @@ class PatchEmbed(nn.Module):
             padding="VALID",
             param_dtype=jnp.float32,
             name="embedding",
-            # TODO: check the axis, original torch code with comment
+            # TODO(guandao): check the axis, original torch code with comment
             # # Initialize patch_embed like nn.Linear (instead of nn.Conv2d):
             # w = self.x_embedder.proj.weight.data
             # nn.init.xavier_uniform_(w.view([w.shape[0], -1]))
@@ -46,114 +46,6 @@ class PatchEmbed(nn.Module):
         # (B, H', W', C) -> (B, L, C)
         x = x.reshape(B, -1, self.embed_dim)
         return x
-    
-    
-class FlaxEncoder(nn.Module):
-    """ VAE encoder layer, without the middle attention layers. """
-    in_channels: int = 3
-    out_channels: int = 3
-    down_block_types: Tuple[str] = ("DownEncoderBlock2D",)
-    block_out_channels: Tuple[int] = (64,)
-    layers_per_block: int = 2
-    norm_num_groups: int = 32
-    act_fn: str = "silu"
-    double_z: bool = False
-    dtype: jnp.dtype = jnp.float32
-
-    def setup(self):
-        block_out_channels = self.block_out_channels
-        # in
-        self.conv_in = nn.Conv(
-            block_out_channels[0],
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=((1, 1), (1, 1)),
-            dtype=self.dtype,
-        )
-
-        # downsampling
-        down_blocks = []
-        output_channel = block_out_channels[0]
-        for i, _ in enumerate(self.down_block_types):
-            input_channel = output_channel
-            output_channel = block_out_channels[i]
-            is_final_block = i == len(block_out_channels) - 1
-
-            down_block = FlaxDownEncoderBlock2D(
-                in_channels=input_channel,
-                out_channels=output_channel,
-                num_layers=self.layers_per_block,
-                resnet_groups=self.norm_num_groups,
-                add_downsample=not is_final_block,
-                dtype=self.dtype,
-            )
-            down_blocks.append(down_block)
-        self.down_blocks = down_blocks
-
-        # end
-        conv_out_channels = 2 * self.out_channels if self.double_z else self.out_channels
-        self.conv_norm_out = nn.GroupNorm(num_groups=self.norm_num_groups, epsilon=1e-6)
-        self.conv_out = nn.Conv(
-            conv_out_channels,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=((1, 1), (1, 1)),
-            dtype=self.dtype,
-        )
-
-    def __call__(self, sample, deterministic: bool = True):
-        # in
-        sample = self.conv_in(sample)
-
-        # downsampling
-        for block in self.down_blocks:
-            sample = block(sample, deterministic=deterministic)
-
-        # end
-        sample = self.conv_norm_out(sample)
-        sample = nn.swish(sample)
-        sample = self.conv_out(sample)
-
-        return sample
-
-    
-    
-class ConvNetEmbed(nn.Module):
-    """ 2D Image to Patch Embedding
-    """
-    # TODO: order matters
-    patch_size: Tuple[int] = (16, 16)
-    embed_dim: int = 768
-    layers_per_block: int = 1
-
-    def setup(self):
-        patch_size = self.patch_size[0] if isinstance(self.patch_size, tuple) else self.patch_size
-        num_layers = int(np.round(np.log(self.patch_size)/np.log(2)))
-        self.encoder = FlaxEncoder(
-            in_channels=3,
-            out_channels=self.embed_dim,
-            down_block_types=["DownEncoderBlock2D"] * (num_layers + 1),
-            block_out_channels=[
-                min(512, 32 * 2**i) for i in range(num_layers + 1)],
-            layers_per_block=self.layers_per_block,
-            norm_num_groups=32,
-            act_fn="silu",
-            double_z=False
-        )
-        
-    def __call__(self, x, *args, **kwargs):
-        """ Args:   [x] images with shape (B, C, H, W)
-            Rets:   Token list with shape (B, L, C)
-        """
-        B, C, H, W = x.shape
-        # (B, D, H', W') -> (B, H', W', D)
-        x = x.transpose((0, 2, 3, 1))
-        # (B, C, H, W, C) -> (B, D, H', W')
-        x = self.encoder(x)
-        # (B, H', W', D) -> (B, L=H'* W', D)
-        x = x.reshape(B, -1, self.embed_dim)
-        return x
-
 
 
 class UnPatchify(nn.Module):
@@ -175,113 +67,8 @@ class UnPatchify(nn.Module):
         x = jnp.einsum('nhwpqc->nchpwq', x)
         imgs = x.reshape(x.shape[0], c, h * p, h * p)
         return imgs
-    
-    
-class FlaxDecoder(nn.Module):
-    """ VAE Decoder layer, without the middle attention layers. """
 
-    in_channels: int = 3
-    out_channels: int = 3
-    up_block_types: Tuple[str] = ("UpDecoderBlock2D",)
-    block_out_channels: int = (64,)
-    layers_per_block: int = 2
-    norm_num_groups: int = 32
-    act_fn: str = "silu"
-    dtype: jnp.dtype = jnp.float32
-
-    def setup(self):
-        block_out_channels = self.block_out_channels
-
-        # z to block_in
-        self.conv_in = nn.Conv(
-            block_out_channels[-1],
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=((1, 1), (1, 1)),
-            dtype=self.dtype,
-        )
-
-        # upsampling
-        reversed_block_out_channels = list(reversed(block_out_channels))
-        output_channel = reversed_block_out_channels[0]
-        up_blocks = []
-        for i, _ in enumerate(self.up_block_types):
-            prev_output_channel = output_channel
-            output_channel = reversed_block_out_channels[i]
-
-            is_final_block = i == len(block_out_channels) - 1
-
-            up_block = FlaxUpDecoderBlock2D(
-                in_channels=prev_output_channel,
-                out_channels=output_channel,
-                num_layers=self.layers_per_block + 1,
-                resnet_groups=self.norm_num_groups,
-                add_upsample=not is_final_block,
-                dtype=self.dtype,
-            )
-            up_blocks.append(up_block)
-            prev_output_channel = output_channel
-
-        self.up_blocks = up_blocks
-
-        # end
-        self.conv_norm_out = nn.GroupNorm(num_groups=self.norm_num_groups, epsilon=1e-6)
-        self.conv_out = nn.Conv(
-            self.out_channels,
-            kernel_size=(3, 3),
-            strides=(1, 1),
-            padding=((1, 1), (1, 1)),
-            dtype=self.dtype,
-        )
-
-    def __call__(self, sample, deterministic: bool = True):
-        # z to block_in
-        sample = self.conv_in(sample)
-
-        # upsampling
-        for block in self.up_blocks:
-            sample = block(sample, deterministic=deterministic)
-
-        sample = self.conv_norm_out(sample)
-        sample = nn.swish(sample)
-        sample = self.conv_out(sample)
-
-        return sample
-
-    
-   
-class ConvNetUnPatchify(nn.Module):
-    out_channels: int
-    patch_size: int
-    layers_per_block: int = 1
-    
-    def setup(self):
-        num_layers = int(np.round(np.log(self.patch_size)/np.log(2)))
-        self.decoder = FlaxDecoder(
-            out_channels=self.out_channels,
-            up_block_types=["UpDecoderBlock2D"] * (num_layers + 1),
-            block_out_channels=[
-                min(512, 32 * 2**i) for i in range(num_layers + 1)],
-            layers_per_block=self.layers_per_block,
-            norm_num_groups=32,
-            act_fn="silu",
-        )
-        
-    def __call__(self, x, *args, **kwargs):
-        """
-        Args: [x]:      (N, T, C)
-        Rets: [imgs]:   (N, H, W, C)
-        """
-        b = x.shape[0]
-        c = x.shape[-1]
-        h = w = int(x.shape[1] ** 0.5)
-        assert h * w == x.shape[1]
-
-        imgs = x.reshape(b, h, w, c)
-        imgs = self.decoder(imgs) 
-        imgs = imgs.transpose((0, 3, 1, 2))
-        return imgs
-    
+ 
 ################################################################################
 # Simple diffusion
 ################################################################################

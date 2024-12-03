@@ -1,5 +1,0 @@
-defaults:
-  - dit_s_linattn
-
-name: "DiT-S-linattno-vit3"
-attn_type: "vit3_linear"

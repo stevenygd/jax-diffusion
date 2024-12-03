@@ -1,6 +1,6 @@
 from diffusion.models.layers.attention import MTTTAttention
 from diffusion.models.layers.mttt import MTTTMultiHeadSelfAttention, TTTEncoder 
-from diffusion.models.layers.mttt_lm import TTTLMBiDirAttention, TTTBase
+from diffusion.models.layers.ttt import TTTLMBiDirAttention, TTTBase
 from diffusion.utils.flops_utils import *
 
 
