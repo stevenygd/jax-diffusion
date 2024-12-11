@@ -9,7 +9,6 @@ attn_kwargs:
 
 # For memory efficiency
 grad_checkpoint: True 
-scan_blocks: True 
 scan_remat: True 
 scan_remat_block_size: 4
 dit_block_kwargs:
