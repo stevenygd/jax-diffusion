@@ -68,7 +68,7 @@ def is_main():
     
     
 @hydra.main(version_base=None, 
-            config_path="diffusion/hydra_configs", 
+            config_path="diffusion/configs", 
             config_name="config")
 def main(args: DictConfig):
     """
@@ -99,7 +99,7 @@ def main(args: DictConfig):
         project_name = args.wandb.project
     else:
         expr_name = f"{args.expr_name}-{model_str}-{run_time}"
-        project_name = WANDB_PROJECT + f"_res{args.image_size}"
+        project_name = WANDB_PROJECT
     if (not args.wandb.log_on_main) or is_main():
         # NOTE even resuming will create a new wandb log
         run = wandb.init(
@@ -295,7 +295,6 @@ def main(args: DictConfig):
                 aux = jax.device_get(aux)
                 loss_val = aux["loss_val"]
                 gnorm = aux["grad_norm"]
-                moe_loss = aux["loss_dict"]["moe_loss"]
                 diff_loss = aux["loss_dict"]["loss"]
                 stepping_time_meter.add_to_sum(time.time() - step_start_time)
                 
@@ -307,7 +306,6 @@ def main(args: DictConfig):
                 logger.info(
                     f"(step={train_steps:07d})"
                     # f" loss={loss_val:.4f} diff={diff_loss:.4f}"
-                    # f" moe={moe_loss:.4f} gnorm={gnorm:.4f}"
                     f" steps/s={steps_per_sec:.2f}"
                     f" time(load,train,log)=({loading_time_meter.avg:.4f},"
                     f"{stepping_time_meter.avg:.4f},"
@@ -329,7 +327,6 @@ def main(args: DictConfig):
                         "orig_train_steps": train_steps,
                         "loss": loss_val.mean(),
                         "gnorm": gnorm.mean(),
-                        "moe_loss": moe_loss.mean(),
                         "diff_loss": diff_loss.mean(),
                         # Time profiling
                         "logging_time": logging_time_meter.avg,

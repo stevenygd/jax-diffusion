@@ -16,7 +16,6 @@ import orbax
 import tensorflow as tf 
 tf.config.experimental.set_visible_devices([], "GPU")
 tf.config.experimental.set_visible_devices([], "TPU")
-from diffusion.models.layers.moe_mlp import compute_switch_loss
 from diffusion.losses import create_diffusion
 from jax.sharding import Mesh
 from jax.sharding import NamedSharding
@@ -154,22 +153,8 @@ def make_train_step(args, model):
         model_fn = partial(model.apply, params)
         loss_dict, t, aux_dict = diffusion.training_losses(
             model_fn, rng, x, model_kwargs=model_kwargs)
-        # Compute MoE loss
-        moe_info = aux_dict.get('moe', None)
-        moe_args = args.loss.get('moe', None)
-        moe_loss = 0.
-        if moe_info is not None and moe_args is not None:
-            moe_loss, z_loss = compute_switch_loss(
-                moe_info, moe_info["experts"], 
-                use_z_loss=True)
-            moe_loss = moe_args.get("moe_loss_weight", 0) * moe_loss
-            if z_loss is not None:
-                moe_loss += moe_args.get("z_loss_weight", 0) * z_loss
-
-        loss = loss_dict["loss"].mean() + moe_loss
-
-        # Add moe_loss to the aux_dict
-        loss_dict['moe_loss'] = moe_loss
+        
+        loss = loss_dict["loss"].mean()
 
         return loss, {"loss_dict": loss_dict, "t": t, "aux": aux_dict}
    

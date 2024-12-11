@@ -10,8 +10,8 @@ from typing import Dict, Any
 from omegaconf import OmegaConf
 from diffusion.models.utils import Identity
 from diffusion.models.utils import precision_str_to_type
-from diffusion.models.s4d import S4D 
-from diffusion.models.ttt import TTTLinear, TTTLinearBase, TTTMLP, TTTMLPBase
+from diffusion.models.layers.s4d_jax import S4D 
+from diffusion.models.layers.ttt import TTTLinear, TTTLinearBase, TTTMLP, TTTMLPBase
 
 
 class JaxAttention(nn.Module):

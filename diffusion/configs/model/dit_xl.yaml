@@ -4,8 +4,7 @@ depth: 28
 hidden_size: 1152
 patch_size: 1     # TODO: patch size can change based
 num_heads: 16
-fst_cond_type: "modulate"
-snd_cond_type: "modulate"
+
 # attn_type: "jax"
 # grad_checkpoint: True
 # dit_block_kwargs:

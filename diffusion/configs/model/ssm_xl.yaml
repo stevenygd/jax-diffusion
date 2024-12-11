@@ -1,0 +1,23 @@
+defaults:
+  - dit_xl
+
+name: "SSM-XL"
+attn_type: "ssm"
+attn_kwargs:
+  d_expansion: 1
+  d_state: 256 
+
+# For memory efficiency
+grad_checkpoint: True 
+scan_blocks: True 
+scan_remat: True 
+scan_remat_block_size: 4
+dit_block_kwargs:
+  grad_checkpoint_attn: False 
+  grad_checkpoint_mlp: False 
+  grad_checkpoint_adamlp: False 
+  blockwise_mlp: False 
+  blockwise_mlp_chunk_size: 1 
+  # Mixed precision
+  mlp_dtype: "bfloat16"
+  adaln_mlp_dtype: "bfloat16"
