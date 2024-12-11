@@ -104,7 +104,7 @@ export WANDB_PROJECT="jax-diffusion"
 export WANDB_TEAM=
 ...
 ```
-**1-2. Directory of the Codebase, output and dataset** : `CODE_DIR` and `OUT_DIR` should be the same. Set vae directory(`VAE_DIR`) storing the pretrained weights of autoencoder. :
+**1-2. Directory of the Codebase, output and dataset** : `CODE_DIR` and `OUT_DIR` should be the same as what you defined in the training script. Set the VAE directory (`VAE_DIR`) to the location where the pretrained weights of the autoencoder are stored.:
 ```bash
 CODE_DIR=../jax-diffusion
 OUT_DIR=../output

@@ -276,7 +276,7 @@ def main(args: DictConfig):
     else:
         resume_steps = [int(ckpt) for ckpt in os.listdir(checkpoint_dir) if ckpt.isdigit()]
         resume_steps = sorted(resume_steps, reverse=True)
-        resume_steps = [ckpt for ckpt in resume_steps if ckpt%25000==0] + [ckpt for ckpt in resume_steps if ckpt%25000!=0]
+        # resume_steps = [ckpt for ckpt in resume_steps if ckpt%25000==0] + [ckpt for ckpt in resume_steps if ckpt%25000!=0]
 
     print("Resume steps for this run:", resume_steps)
 
