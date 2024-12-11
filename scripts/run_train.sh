@@ -4,24 +4,26 @@ rm -r $HYDRA_DIR $WANDB_DIR
 mkdir -p $HYDRA_DIR
 mkdir -p $WANDB_DIR
 
-# wandb configuration
+# 1. wandb configuration
 export WANDB_API_KEY="f18c16a3ee499fe6f8c2b73384c997467f4b1ffa"
 export WANDB_PROJECT="mt3_highres"
 export WANDB_TEAM="xnf"
 
-# directory of the codebase
+# 2. directory of the codebase, output and stored data
 CODE_DIR=/mnt/disks/nfs/ujinsong/jax-diffusion
-
-# directory that stores the checkpoints upon training
 OUT_DIR=/mnt/disks/gs/sci-guandao
-
-# directory that reads the data from
 DATA_DIR=/mnt/disks/data
 
-# model name
-MODEL_NAME=ssm_xl
-EXPR_NAME=release
+# 3. model name and experiment name for current run
+MODEL_NAME=dit_xl # should be one of the following: dit_l, dit_xl, ssm_l, ssm_xl
+EXPR_NAME=my_train
 
+if [ "$MODEL_NAME" != "dit_l" ] && [ "$MODEL_NAME" != "dit_xl" ] && [ "$MODEL_NAME" != "ssm_l" ] && [ "$MODEL_NAME" != "ssm_xl" ]; then
+  echo "Invalid model name: ${MODEL_NAME}"
+  exit 1
+fi
+
+# 4. run the training script, change other hyperparameters in the config file(if needed)
 export LIBTPU_INIT_ARGS=" --xla_tpu_impure_oom_fast_exit_threshold=-1 --xla_tpu_enable_data_parallel_all_reduce_opt=true --xla_tpu_data_parallel_opt_different_sized_ops=true --xla_tpu_enable_async_collective_fusion=true --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true --xla_tpu_enable_async_collective_fusion_multiple_steps=true --xla_tpu_overlap_compute_collective_tc=true --xla_enable_async_all_gather=true"
 XLA_PYTHON_CLIENT_MEM_FRACTION=.95 PYTHONPATH=${CODE_DIR} python ${CODE_DIR}/train.py \
   --config-name config \
@@ -32,6 +34,4 @@ XLA_PYTHON_CLIENT_MEM_FRACTION=.95 PYTHONPATH=${CODE_DIR} python ${CODE_DIR}/tra
   hydra_dir=${HYDRA_DIR} \
   wandb_dir=${WANDB_DIR} \
   multi_process=True \
-  global_batch_size=16 \
-  ckpt_every=50 \
-  total_iters=200
+  global_batch_size=128
