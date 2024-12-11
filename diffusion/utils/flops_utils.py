@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 import flax.linen as nn
-from diffusion.models.layers.attention import TorchAttention, LinearAttention, JaxAttention
+from diffusion.models.layers.attention import LinearAttention, JaxAttention
 from diffusion.models.layers.ffn import Mlp
 
 

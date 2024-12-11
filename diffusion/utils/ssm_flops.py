@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import flax.linen as nn
-from diffusion.models.layers.s4d_jax import S4DAttention, S4D, S4DKernel 
+from diffusion.models.layers.s4d_jax import S4D, S4DKernel 
+from diffusion.models.layers.attention import S4DAttention
 from diffusion.utils.flops_utils import *
 
 def gelu_flops(shape, layer: nn.gelu, backward=False, unit=1):

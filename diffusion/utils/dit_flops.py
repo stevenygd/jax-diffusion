@@ -1,46 +1,35 @@
 import jax.numpy as jnp
 from diffusion.models.dit import (
-    FinalLayer, DiTBlock, TimestepEmbedder, LabelEmbedder, PatchEmbed, ConvNetEmbed, SimpleDiffusionEmbedder, SimpleDiffusionUnpacify)
-from diffusion.models.uvit import (
-    DownSample, UpSample, Stage
-)
+    FinalLayer, DiTBlock, TimestepEmbedder, LabelEmbedder, PatchEmbed, SimpleDiffusionEmbedder, SimpleDiffusionUnpacify)
 from diffusion.models.utils import Identity
-from diffusion.models.layers.s4d_jax import S4DAttention
 from diffusion.models.layers.attention import (
-    MTTTAttention, TorchAttention, LinearAttention, JaxAttention, DiffuserAttention
+    TTTAttention, S4DAttention, LinearAttention, JaxAttention
 )
 from diffusion.models.layers.ffn import Mlp
-from diffusion.models.layers.moe_mlp import SwitchFeedForward
-from diffusion.models.layers.ttt import TTTLMBiDirAttention
-from diffusion.utils.mt3_flops import mt3_attn_flops, mt3_lm_bdar_flops
-from diffusion.utils.vae_flops import convnet_emb_flops
+# from diffusion.utils.mt3_flops import mt3_attn_flops, mt3_lm_bdar_flops
+# from diffusion.utils.vae_flops import convnet_emb_flops
 from diffusion.utils.ssm_flops import s4d_attn_flops
-from diffusion.utils.moe_mlp_flops import switch_ff_flops
+# from diffusion.utils.moe_mlp_flops import switch_ff_flops
 from diffusion.utils.simpdiff_emb_flops import simpdiff_emb_flops, simpdiff_unpatchify_flops
-from diffusion.utils.uvit_flops import uvit_downsample_flops, uvit_upsample_flops
+# from diffusion.utils.uvit_flops import uvit_downsample_flops, uvit_upsample_flops
 from diffusion.utils.flops_utils import * 
 from typing import Union
 
 
 def dit_attn_flops(x_shape, layer, backward=False, unit=1):
     flops = 0 
-    if isinstance(layer, TorchAttention):
+    # if isinstance(layer, TorchAttention):
+    if isinstance(layer, JaxAttention):
         x_shape, flops, block_attn_flops_dict = self_attn_flops(
             x_shape, layer, backward=backward, unit=unit)
-    elif isinstance(layer, JaxAttention) or isinstance(layer, DiffuserAttention):
-        x_shape, flops, block_attn_flops_dict = jax_attn_flops(
-            x_shape, layer, backward=backward, unit=unit)
-    elif isinstance(layer, MTTTAttention):
-        x_shape, flops, block_attn_flops_dict = mt3_attn_flops(
-            x_shape, layer, backward=backward, unit=unit)
+    # elif isinstance(layer, TTTAttention):
+    #     x_shape, flops, block_attn_flops_dict = mt3_attn_flops(
+    #         x_shape, layer, backward=backward, unit=unit)
     elif isinstance(layer, LinearAttention):
         x_shape, flops, block_attn_flops_dict = linear_attn_flops(
             x_shape, layer, backward=backward, unit=unit)
     elif isinstance(layer, S4DAttention):
         x_shape, flops, block_attn_flops_dict = s4d_attn_flops(
-            x_shape, layer, backward=backward, unit=unit)
-    elif isinstance(layer, TTTLMBiDirAttention):
-        x_shape, flops, block_attn_flops_dict = mt3_lm_bdar_flops(
             x_shape, layer, backward=backward, unit=unit)
     else:
         # pass
@@ -88,9 +77,9 @@ def dit_block_flops(x_shape, c_shape, layer: DiTBlock, backward=False, unit=1):
     if isinstance(layer.mlp, Mlp):
         x_shape, flops_ = mlp_flops(
             x_shape, layer.mlp, backward=backward, unit=unit)
-    elif isinstance(layer.mlp, SwitchFeedForward):
-        x_shape, flops_ = switch_ff_flops(
-            x_shape, layer.mlp, backward=backward, unit=unit)
+    # elif isinstance(layer.mlp, SwitchFeedForward):
+    #     x_shape, flops_ = switch_ff_flops(
+    #         x_shape, layer.mlp, backward=backward, unit=unit)
         
     flops += flops_
     block_flops_dict['DiTBlockMlpFlops'] += flops_
@@ -183,10 +172,10 @@ def dit_flops(x_shape, y_shape, t_shape, dit, backward=False, unit=1):
     print(f'x_shape={x_shape} c_shape=(=t_shape){c_shape}')
     
     # Compute xemb flops 
-    if isinstance(dit.x_embedder, ConvNetEmbed):
-        x_shape, flops_ = convnet_emb_flops(
-            x_shape, c_shape, dit.x_embedder, backward=backward, unit=unit)
-    elif isinstance(dit.x_embedder, PatchEmbed):
+    # if isinstance(dit.x_embedder, ConvNetEmbed):
+    #     x_shape, flops_ = convnet_emb_flops(
+    #         x_shape, c_shape, dit.x_embedder, backward=backward, unit=unit)
+    if isinstance(dit.x_embedder, PatchEmbed):
         x_shape, flops_ = x_emb_flops(
             x_shape, c_shape, dit.x_embedder, backward=backward, unit=unit)
     elif isinstance(dit.x_embedder, SimpleDiffusionEmbedder):
@@ -214,10 +203,10 @@ def dit_flops(x_shape, y_shape, t_shape, dit, backward=False, unit=1):
             
             if isinstance(dit.down_layers[lid], Identity):
                 pass
-            elif isinstance(dit.down_layers[lid], DownSample):
-                x_shape, flops_ = uvit_downsample_flops(
-                    x_shape, dit.down_layers[lid], backward=backward, unit=unit)
-                flops += flops_
+            # elif isinstance(dit.down_layers[lid], DownSample):
+            #     x_shape, flops_ = uvit_downsample_flops(
+            #         x_shape, dit.down_layers[lid], backward=backward, unit=unit)
+            #     flops += flops_
             else:
                 raise ValueError(f"Undefined down_layer type for flops counting: {type(dit.down_layers[lid])}")
         
@@ -235,10 +224,10 @@ def dit_flops(x_shape, y_shape, t_shape, dit, backward=False, unit=1):
         for lid, stage in enumerate(dit.stages_bck):
             if isinstance(dit.up_layers[lid], Identity):
                 pass
-            elif isinstance(dit.up_layers[lid], UpSample):
-                x_shape, flops_ = uvit_upsample_flops(
-                    x_shape, dit.up_layers[lid], backward=backward, unit=unit)
-                flops += flops_
+            # elif isinstance(dit.up_layers[lid], UpSample):
+            #     x_shape, flops_ = uvit_upsample_flops(
+            #         x_shape, dit.up_layers[lid], backward=backward, unit=unit)
+            #     flops += flops_
             else:
                 raise ValueError(f"Undefined up_layer type for flops counting: {type(dit.up_layers[lid])}")
             

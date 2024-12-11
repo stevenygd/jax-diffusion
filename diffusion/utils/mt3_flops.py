@@ -1,11 +1,13 @@
-from diffusion.models.layers.attention import MTTTAttention
-from diffusion.models.layers.mttt import MTTTMultiHeadSelfAttention, TTTEncoder 
-from diffusion.models.layers.ttt import TTTLMBiDirAttention, TTTBase
+from diffusion.models.layers.attention import TTTAttention
+# from diffusion.models.layers.mttt import MTTTMultiHeadSelfAttention, TTTEncoder 
+# from diffusion.models.layers.ttt import TTTLMBiDirAttention, TTTBase
+# from diffusion.models.layers.ttt import MTTTMultiHeadSelfAttention, TTTEncoder 
+from diffusion.models.layers.ttt import TTTBase
 from diffusion.utils.flops_utils import *
 
 
 def mt3_attn_flops(
-    shape, layer: MTTTAttention, backward=False, unit=1):
+    shape, layer: TTTAttention, backward=False, unit=1):
     flops = 0
     block_attn_flops_dict = {'DiTBlockAttn-kqvFlops': 0, 'DiTBlockAttn-attnFlops': 0, 'DiTBlockAttn-outFlops': 0}
 

@@ -44,6 +44,11 @@ This will save approximately 1K TFRecord files in a newly created `data` directo
 If you want to train on your own dataset, you need to create TFRecords for that dataset using scipts under `scripts/create_data`. Further description of this process will be updated soon.
 
 
+### VAE
+The models are being trained on latent features of ImageNet, which means that the data has already gone through the 'encoder' part of a variational autoencoder (VAE). We are using the pretrained weights of a well-performing VAE. Therefore, during inference, the model should be able to decode the generated latent code into image space. We provide the configuration and weights for the VAE that fit this model. Download these to your local directory. The directory will include the following two files: `config.npy` and `params.npy`.
+
+TODO: provide the config.npy and params.npy as dataset downloading
+
 ## 1. Train the Model
 
 Before running the training script, you need to modify the following contents inside `scripts/run_train.sh`:
@@ -67,7 +72,7 @@ DATA_DIR=../data
 MODEL_NAME=ssm_xl  # should be one of the following: dit_l, dit_xl, ssm_l, ssm_xl
 EXPR_NAME=my_train
 ```
-*Note: `EXPR_NAME` will be identified by appending the model name and running time, so you don't need to be very specific about it*:
+*Note: `EXPR_NAME` will be identified by appending the model name and running time(e.g. `my_train-DiT-XL-2024-Dec-11-04-02-15`), so you don't need to worry too much about the naming.*:
 
 **1-4. Change other train configuration** : 
 By default, train configuration is called with the default parameters specified inside `diffusion/configs/config.yaml`. If you want to modify specific parameters, feel free to change them to match your usage below line `--config-name`. For example:
@@ -89,4 +94,41 @@ bash scripts/run_train.sh
 
 ## 2. Evaluate the Model
 
-To be updated
+
+Before running the testing script, you need to modify the following contents inside `scripts/run_train.sh` as we did for training:
+
+**1-1. WandB Configuration** : We use WandB for logging the training loss and evaluation results. You will need the WandB project name and API key. Set these as:
+```bash
+export WANDB_API_KEY="2weq2934u..."
+export WANDB_PROJECT="jax-diffusion"
+export WANDB_TEAM=
+...
+```
+**1-2. Directory of the Codebase, output and dataset** : `CODE_DIR` and `OUT_DIR` should be the same. Set vae directory(`VAE_DIR`) storing the pretrained weights of autoencoder. :
+```bash
+CODE_DIR=../jax-diffusion
+OUT_DIR=../output
+VAE_DIR=../vae
+```
+**1-3. Select Model Name and Name for Current Run** : Specify the experiment name, inclusive of the model name and running time that was automatically set during training. If you want to evaluate a specific single checkpoint, define that at `RESUME_CHECKPOINT`. If you want to evaluate all existing checkpoints, set `RESUME_CHECKPOINT` equal to -1.
+
+```bash
+EXPR_NAME=my_train-DiT-XL-2024-Dec-11-04-02-15
+RESUME_CHECKPOINT=-1
+```
+
+**1-4. Change other evaluation configuration** : 
+By default, evaluation configuration is specified inside `diffusion/configs/config.yaml` when we first train the model. If you want to modify specific parameters, feel free to change them to match your usage below line `--config-path`. For example:
+
+```bash
+  --config-path . \
+    ...
+    inference.per_proc_batch_size=32 \
+    inference.num_fid_samples=50000
+    ...
+```
+
+After setting all these configurations, finally run:
+```bash
+bash scripts/run_eval.sh
+```

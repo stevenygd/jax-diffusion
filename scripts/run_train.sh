@@ -1,5 +1,6 @@
-export HYDRA_DIR=`pwd`/hydra
-export WANDB_DIR=`pwd`/wandb
+export USER_DIR=/home/`whoami`
+export HYDRA_DIR=${USER_DIR}/hydra
+export WANDB_DIR=${USER_DIR}/wandb
 rm -r $HYDRA_DIR $WANDB_DIR 
 mkdir -p $HYDRA_DIR
 mkdir -p $WANDB_DIR
