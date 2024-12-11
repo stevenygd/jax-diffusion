@@ -12,10 +12,7 @@ jax-diffusion
 │   ├── models     # Defines models and sub-layers that constitute the model.
 │   └── utils      # utility functions for FLOP computations and other training utilities.
 ├── scripts
-│   ├── create_data  # Scripts for extracting features and saving images in a format readable by our defined dataloader, given downloaded image data.
-│   ├── data_download# Script for downloading the ImageNet dataset (image size=256 or 512).
-│   ├── run_train.sh # Script for launching training with user-defined parameters using train.py.
-│   └── run_eval.sh  # Script for launching evaluation with user-defined parameters using eval.py.
+│   ├── data_prep  # Scripts for downloading dataset and extracting features and saving images in a format readable by our defined dataloader, given downloaded image data.
 ```
 
 ## 0. Environment Setting and Data Preparation
@@ -31,23 +28,30 @@ If you are using TPU, run:
 bash scripts/install_env_tpu.sh
 ```
 
+### VAE
+The models are being trained on latent features of ImageNet, which means that the data has already gone through the 'encoder' part of a variational autoencoder (VAE). We are using the pretrained weights of a well-performing VAE. Therefore, during inference, the model should be able to decode the generated latent code into image space. We provide the configuration and weights for the VAE that fit this model. Download these to your local directory.
+```
+bash scripts/data_prep/downloadvae.sh
+```
+The directory will include the following two files: `config.npy`(model configuration) and `params.npy`(pretrained weights).
+
 ### Dataset
 
 You need to download the dataset to train the model. We use ImageNet (image size=256 or 512) and have already extracted the latent features (f=8) and saved them in TFRecord format. To download the TFRecords, run:
 ```shell
-bash /scripts/data_download/download256.sh # image size: 256
-bash /scripts/data_download/download.sh # image size: 512
+bash scripts/data_prep/download256.sh # image size: 256
+bash scripts/data_prep/download512.sh # image size: 512
 ```
 This will save approximately 1K TFRecord files in a newly created `data` directory inside the current directory (or in the directory you define as `save_dir` inside `download256.sh`).
 
 
-If you want to train on your own dataset, you need to create TFRecords for that dataset using scipts under `scripts/create_data`. Further description of this process will be updated soon.
+If you want to train on your own dataset, you need to create TFRecords for that dataset using scipts under `scripts/datap_prep/extract_features_jax.py`. Run:
+```
+python scripts/data_prep/extract_features_jax.py --data-dir=dir/to/image/folder --vae=dir/to/vae
+```
 
 
-### VAE
-The models are being trained on latent features of ImageNet, which means that the data has already gone through the 'encoder' part of a variational autoencoder (VAE). We are using the pretrained weights of a well-performing VAE. Therefore, during inference, the model should be able to decode the generated latent code into image space. We provide the configuration and weights for the VAE that fit this model. Download these to your local directory. The directory will include the following two files: `config.npy` and `params.npy`.
 
-TODO: provide the config.npy and params.npy as dataset downloading
 
 ## 1. Train the Model
 

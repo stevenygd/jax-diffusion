@@ -17,9 +17,9 @@ https://huggingface.co/blog/sdxl_jax
 """
 import jax
 import flax
-from torch.utils.data import DataLoader
-from torchvision.datasets import ImageFolder
-from torchvision import transforms
+# from torch.utils.data import DataLoader
+# from torchvision.datasets import ImageFolder
+# from torchvision import transforms
 import numpy as np
 from PIL import Image
 import argparse
@@ -31,121 +31,91 @@ import tensorflow as tf
 import tensorflow_datasets as tfds
 import shutil
 import os.path as osp
-import lovely_jax
-lovely_jax.monkey_patch()
 
 
 ################################################################################
-#                                 Helper Functions                             #
+#                                 Image Preprocessing                         #
 ################################################################################
 
+def center_crop_arr(image, image_size):
+    shape = tf.shape(image)
+    height, width = shape[0], shape[1]
+    crop_size = tf.minimum(height, width)
+    offset_height = (height - crop_size) // 2
+    offset_width = (width - crop_size) // 2
+    image = tf.image.crop_to_bounding_box(image, offset_height, offset_width, crop_size, crop_size)
+    image = tf.image.resize(image, [image_size, image_size])
+    return image
 
-def center_crop_arr(pil_image, image_size):
-    """
-    Center cropping implementation from ADM.
-    https://github.com/openai/guided-diffusion/blob/8fb3ad9197f16bbc40620447b2742e13458d2831/guided_diffusion/image_datasets.py#L126
-    """
-    while min(*pil_image.size) >= 2 * image_size:
-        pil_image = pil_image.resize(
-            tuple(x // 2 for x in pil_image.size), resample=Image.BOX
-        )
-
-    scale = image_size / min(*pil_image.size)
-    pil_image = pil_image.resize(
-        tuple(round(x * scale) for x in pil_image.size), resample=Image.BICUBIC
-    )
-
-    arr = np.array(pil_image)
-    crop_y = (arr.shape[0] - image_size) // 2
-    crop_x = (arr.shape[1] - image_size) // 2
-    return Image.fromarray(arr[crop_y: crop_y + image_size, crop_x: crop_x + image_size])
-
+def preprocess(image, label, image_size):
+    image = tf.image.convert_image_dtype(image, tf.float32)
+    image = center_crop_arr(image, image_size)
+    image = tf.image.random_flip_left_right(image)
+    image = (image - 0.5) / 0.5  # Normalize to [-1, 1]
+    return image, label
 
 ################################################################################
-#                                 Training Loop                                #
+#                                 Extraction Loop                              #
 ################################################################################
 
 def main(args):
-    """
-    Trains a new DiT model.
-    """
-    # Create model:
-    print("Creating model...")
+
+    # Create autoencoder:
+    print("\nCreating autoencoder...")
     assert args.image_size % 8 == 0, \
         "Image size must be divisible by 8 (for the VAE encoder)."
-    # vae = FlaxAutoencoderKL.from_pretrained(f"stabilityai/sd-vae-ft-{args.vae}")
-    # vae = FlaxAutoencoderKL.from_pretrained("runwayml/stable-diffusion-v1-5")
-    # model, params = FlaxUNet2DConditionModel.from_pretrained(
-    #     "runwayml/stable-diffusion-v1-5")
-    # NOTE: this also works
-    # from diffusers import FlaxStableDiffusionPipeline 
-    # pipeline, params = FlaxStableDiffusionPipeline.from_pretrained(
-    #   "CompVis/stable-diffusion-v1-5"
-    #   dtype=jnp.float32,
-    # )
-    # vae = pipeline.vae
-    # vae_params = params["vae_params"]
-    vae, vae_params = FlaxAutoencoderKL.from_pretrained(
-        # This works
-        "runwayml/stable-diffusion-v1-5",
-        revision="flax",
-        subfolder="vae",
-        dtype=jnp.float32,
-        from_pt=False,
-        # DOESN'T WORK: f"stabilityai/sd-vae-ft-mse",
-        # DOESN'T WORK: f"stabilityai/sd-vae-ft-ema",
-    )
+    
+    vae_dir = args.vae_dir
+    vae_config = np.load(os.path.join(vae_dir, 'config.npy'), allow_pickle=True).item()
+    vae_params = np.load(os.path.join(vae_dir, 'params.npy'), allow_pickle=True).item()
+    vae = FlaxAutoencoderKL.from_config(vae_config)
 
     # Setup data:
-    print("Setting up datatraining...")
-    transform = transforms.Compose([
-        transforms.Lambda(lambda pil_image: center_crop_arr(pil_image, args.image_size)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True)
-    ])
-    dataset = ImageFolder(args.data_path, transform=transform)
-    loader = DataLoader(
-        dataset,
-        batch_size = args.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True,
-        drop_last=True
+    print("Setting up data loader...")
+    dataset = tf.keras.preprocessing.image_dataset_from_directory(
+        args.data_dir,
+        image_size=(args.image_size, args.image_size),
+        batch_size=args.batch_size,
+        shuffle=False
     )
+    dataset = dataset.map(lambda x, y: preprocess(x, y, args.image_size),
+                          num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
 
     # Create sharding
-    record_file = args.tfrecord_pattern
+    print("Creating shards...")
+    record_file = osp.join(osp.dirname(args.data_dir), "imagenet%d_flax_tfdata_sharded/%0.5d-of-%0.5d.tfrecords")
     record_file_dir = osp.dirname(record_file % (args.image_size, 0, 0))
-    shutil.rmtree(record_file_dir, ignore_errors=True)
+    if osp.exists(record_file_dir):
+        print(f"\tRemoving existing directory: {record_file_dir}")
+        shutil.rmtree(record_file_dir, ignore_errors=True)
     os.makedirs(record_file_dir)
     n_shards = args.max_num_shards
     min_exs_per_shard = args.min_data_per_shard
 
-    # Sharding
-    n_batches = len(loader)
+    n_batches = tf.data.experimental.cardinality(dataset).numpy()
     exs_per_shard = max(int(np.ceil(min_exs_per_shard / args.batch_size)),
                         int(np.ceil(n_batches // n_shards)))
     num_shards = int(np.ceil(n_batches / exs_per_shard))
     assert n_batches - num_shards * exs_per_shard < exs_per_shard
-    print("#examples=%d, #shards=%d, #ex/shard=%d"
+    print("\n#examples=%d, #shards=%d, #ex/shard=%d"
           % (n_batches, num_shards, exs_per_shard))
 
-    def forward(rng, x):
+    def extract(rng, x):
         rng = jax.random.fold_in(rng, jax.process_index())
+        x = jnp.transpose(x, (0, 3, 1, 2)) # (device_bs, 256, 256, 3) -> (device_bs, 3, 256, 256)
         return vae.apply(
             {"params": vae_params},
             x, deterministic=False, rngs={"gaussian": rng},
             method=vae.encode
-        ).latent_dist.sample(rng).transpose((0, 3, 1, 2)) * 0.18215
-    forward = jax.pmap(forward, axis_name="devices")
+        ).latent_dist.sample(rng).transpose((0, 3, 1, 2)) * 0.18215 # (device_bs, 32, 32, 4) -> (device_bs, 4, 32, 32)
+    extract = jax.pmap(extract, axis_name="devices")
 
-    print("Start training...")
-    # pbar = tqdm.tqdm(enumerate(loader), total=len(loader))
     rng = jax.random.PRNGKey(args.global_seed)
     n_devices = jax.local_device_count()
     device_bs = args.batch_size // n_devices
-    loader_iter = iter(enumerate(loader))
+
+    loader_iter = iter(enumerate(dataset))
     for shard_id in tqdm.tqdm(range(num_shards)):
         record_file_sharded = record_file % (args.image_size, shard_id, num_shards)
         print(record_file_sharded)
@@ -156,16 +126,16 @@ def main(args):
                     x_shape = x.shape[-3:]
                     x = jnp.array(x).reshape(n_devices, device_bs, *x_shape)
                     y = jnp.array(y).reshape(n_devices, device_bs)
-                    # Map input images to latent space + normalize latents:
                     rng_i = flax.jax_utils.replicate(
                         jax.random.fold_in(rng, batch_id))
-                    x = forward(rng_i, x)
-                    x = x.reshape(args.batch_size, *x.shape[-3:])
+                    z = extract(rng_i, x)
+                    z_shape = z.shape[-3:]
+                    z = z.reshape(args.batch_size, *z_shape)
                     y = y.reshape(-1)
-                    for i in range(x.shape[0]):
-                        features = np.array(x[i]).reshape(*x.shape[-3:])
-                        label = int(y[i])
-                        tf_example = make_tf_example(features, label)
+                    for feature, label in zip(z, y):
+                        feature = np.array(feature) # (4, 32, 32)
+                        label = int(label)
+                        tf_example = make_tf_example(feature, label)
                         writer.write(tf_example.SerializeToString())
                 except StopIteration:
                     break
@@ -192,21 +162,16 @@ def make_tf_example(features, label):
 
 
 if __name__ == "__main__":
-    # Default args here will train DiT-XL/2 with the hyperparameters we used in
-    # our paper (except training iters).
     parser = argparse.ArgumentParser()
-    parser.add_argument("--data-path", type=str, required=True)
-    parser.add_argument("--image-size", type=int, choices=[256, 512],
-                        default=256)
-    parser.add_argument("--global-seed", type=int, default=0)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--num-workers", type=int, default=4)
+    parser.add_argument("--data-dir", type=str, required=True)
+    parser.add_argument("--vae-dir", type=str, required=True)
 
-    # Sharding
-    parser.add_argument(
-        "--tfrecord-pattern", type=str,
-        default="data/imagenet%d_flax_tfdata_sharded/%0.5d-of-%0.5d.tfrecords")
+    parser.add_argument("--image-size", type=int, choices=[256, 512], default=256)
+    parser.add_argument("--global-seed", type=int, default=0)
+    parser.add_argument("--batch-size", type=int, default=64)
+
     parser.add_argument("--max-num-shards", type=int, default=1_000)
     parser.add_argument("--min-data-per-shard", type=int, default=1_000)
     args = parser.parse_args()
+
     main(args)
