@@ -35,10 +35,8 @@ bash scripts/install_env_tpu.sh
 ```
 
 ### VAE
-The models are being trained on latent features of ImageNet, which means that the data has already gone through the 'encoder' part of a variational autoencoder (VAE). We are using the pretrained weights of a well-performing VAE. Therefore, during inference, the model should be able to decode the generated latent code into image space. We provide the configuration and weights for the VAE that fit this model. Download these to your local directory.
-```
-bash scripts/data_prep/downloadvae.sh
-```
+The models are being trained on latent features of ImageNet, which means that the data has already gone through the 'encoder' part of a variational autoencoder (VAE). We are using the pretrained weights of a well-performing VAE. Therefore, during inference, the model should be able to decode the generated latent code into image space. We provide the configuration and weights for the VAE that fit this model. Download these from [this link](https://drive.google.com/drive/folders/19UKnB0x9-cHoGRlrnIN7-8iakp_9EWwh) to your local directory.
+
 The directory will include the following two files: `config.npy`(model configuration) and `params.npy`(pretrained weights).
 
 ### Dataset
@@ -61,7 +59,7 @@ python scripts/data_prep/extract_features_jax.py --data-dir=dir/to/image/folder 
 
 ## 1. Train the Model
 
-Before running the training script, you need to modify the following contents inside `scripts/run_train.sh`:
+Before running the training script, you need to modify the following contents inside `scripts/run_train_gpu.sh`(or `scripts/run_train_tpu.sh` if using TPU):
 
 **1-1. WandB Configuration** : We use WandB for logging the training loss and evaluation results. You will need the WandB project name and API key. Set these as:
 ```bash
@@ -98,14 +96,17 @@ By default, train configuration is called with the default parameters specified 
 
 After setting all these configurations, finally run:
 ```bash
-bash scripts/run_train.sh
+bash scripts/run_train_gpu.sh
 ```
-
+or 
+```bash
+bash scripts/run_train_tpu.sh
+```
 
 ## 2. Evaluate the Model
 
 
-Before running the testing script, you need to modify the following contents inside `scripts/run_train.sh` as we did for training:
+Before running the testing script, you need to modify the following contents inside `scripts/run_train_gpu.sh`(`scripts/run_train_tpu.sh` if using TPU) as we did for training:
 
 **1-1. WandB Configuration** : We use WandB for logging the training loss and evaluation results. You will need the WandB project name and API key. Set these as:
 ```bash
@@ -140,5 +141,9 @@ By default, evaluation configuration is specified inside `diffusion/configs/conf
 
 After setting all these configurations, finally run:
 ```bash
-bash scripts/run_eval.sh
+bash scripts/run_eval_gpu.sh
+```
+or
+```bash
+bash scripts/run_eval_tpu.sh
 ```

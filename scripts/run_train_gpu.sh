@@ -11,9 +11,9 @@ export WANDB_PROJECT="mt3_highres"
 export WANDB_TEAM="xnf"
 
 # 2. directory of the codebase, output and stored data
-CODE_DIR=/mnt/disks/nfs/ujinsong/jax-diffusion
-OUT_DIR=/mnt/disks/gs/sci-guandao
-DATA_DIR=/mnt/disks/data
+CODE_DIR=/home/`whoami`/jax-diffusion
+OUT_DIR=/mnt/gs/sci-guandao
+DATA_DIR=/mnt/gs/sci-guandao/data
 
 # 3. model name and experiment name for current run
 MODEL_NAME=dit_xl # should be one of the following: dit_l, dit_xl, ssm_l, ssm_xl
@@ -25,8 +25,7 @@ if [ "$MODEL_NAME" != "dit_l" ] && [ "$MODEL_NAME" != "dit_xl" ] && [ "$MODEL_NA
 fi
 
 # 4. run the training script, change other hyperparameters in the config file(if needed)
-# export LIBTPU_INIT_ARGS=" --xla_tpu_impure_oom_fast_exit_threshold=-1 --xla_tpu_enable_data_parallel_all_reduce_opt=true --xla_tpu_data_parallel_opt_different_sized_ops=true --xla_tpu_enable_async_collective_fusion=true --xla_tpu_enable_async_collective_fusion_fuse_all_gather=true --xla_tpu_enable_async_collective_fusion_multiple_steps=true --xla_tpu_overlap_compute_collective_tc=true --xla_enable_async_all_gather=true"
-# export XLA_PYTHON_CLIENT_MEM_FRACTION=.95
+export CUDA_VISIBLE_DEVICES=0 
 PYTHONPATH=${CODE_DIR} python ${CODE_DIR}/train.py \
   --config-name config \
   model=${MODEL_NAME} \
@@ -35,5 +34,6 @@ PYTHONPATH=${CODE_DIR} python ${CODE_DIR}/train.py \
   output_dir=${OUT_DIR} \
   hydra_dir=${HYDRA_DIR} \
   wandb_dir=${WANDB_DIR} \
-  multi_process=True \
-  global_batch_size=128
+  global_batch_size=16 \
+  total_iters=100 \
+  ckpt_every=30 \
