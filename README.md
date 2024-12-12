@@ -19,6 +19,12 @@ jax-diffusion
 
 ### Environment installation
 
+Create envorionment by running:
+```shell
+conda create -n jax-diff
+conda activate jax-diff
+```
+
 The necessary environment settings are stored in `environment-jax.yml`. To install the environment for GPU, run:
 ```shell
 bash scripts/install_env_gpu.sh
