@@ -158,7 +158,7 @@ def make_train_step(args, model):
 
         return loss, {"loss_dict": loss_dict, "t": t, "aux": aux_dict}
    
-    def compute_grad(ema_state, x, y, rng):
+    def compute_grad(params, x, y, rng):
         rng_d, rng_l, rng_mt3, rng_loss = jax.random.split(rng, 4)
         model_kwargs = dict(
             training=True, y=y, 
@@ -167,7 +167,7 @@ def make_train_step(args, model):
         # [grads] are gradient averaged across current micro/mini batch
         (loss_val, all_aux), grads = jax.value_and_grad(
             loss_fn, has_aux=True)(
-            ema_state.train_state.params,
+            params,
             rng_loss, x, model_kwargs) 
         # pjit is able to add the proper pmean here
         # # Gradient averaged across all data samples at current micro/mini batch
@@ -201,7 +201,7 @@ def make_train_step(args, model):
         # Use scan to compute the gradient accumulation 
         # TODO: need to enforce ema_state is sharded!
         @jax.jit
-        def _scan_(carry, data, ema_state):
+        def _scan_(carry, data, params):
             mini_x, mini_y, mini_rng = data
             if pid == 0:
                 print(f"Local data shapes inside (gradacc={args.grad_acc}):")
@@ -211,7 +211,7 @@ def make_train_step(args, model):
             #     lambda a, g: a + g / float(args.grad_acc), carry, micro_grad)
             # return acc, (loss_val, all_aux)
             carry_out = compute_grad(
-                ema_state, mini_x, mini_y, mini_rng)
+                params, mini_x, mini_y, mini_rng)
             carry = jax.tree_util.tree_map(
                 lambda a, g: a + g / float(args.grad_acc), carry, carry_out)
             loss_val = carry_out[1]
@@ -236,7 +236,7 @@ def make_train_step(args, model):
             rng_mini_lst = jax.random.split(rng, args.grad_acc)
             
             carry_shapes = jax.eval_shape(
-                compute_grad, ema_state, 
+                compute_grad, ema_state.train_state.params, 
                 x_mini_lst[0], y_mini_lst[0], rng_mini_lst[0]) 
             if is_main():
                 print("Carry shapes:")
@@ -246,7 +246,7 @@ def make_train_step(args, model):
                     shape=x.shape, dtype=x.dtype), carry_shapes)
             # TODO: this copying does not contain sharding information
             (grads, loss_val, all_aux), _ = jax.lax.scan(
-                partial(_scan_, ema_state=ema_state), carry_init, 
+                partial(_scan_, params=ema_state.train_state.params), carry_init, 
                 (x_mini_lst, y_mini_lst, rng_mini_lst))
             ema_state = ema_state.apply_gradients(grads=grads)
             # loss_val = jnp.mean(loss_val_lst)
@@ -268,7 +268,7 @@ def make_train_step(args, model):
             #     pprint(local_param_shapes)
             #     print(f"Local data shapes (outside):")
             #     print(x.shape, y.shape, rng.shape)
-            grads, loss_val, all_aux = compute_grad(ema_state, x, y, rng)
+            grads, loss_val, all_aux = compute_grad(ema_state.train_state.params, x, y, rng)
             ema_state = ema_state.apply_gradients(grads=grads)
             out_aux = compute_stats(grads, loss_val, all_aux)
             return ema_state, out_aux
