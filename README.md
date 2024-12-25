@@ -150,4 +150,4 @@ bash scripts/run_eval_tpu.sh
 
 ## Acknowledgement
 
-This project is supported by resources provided by TPU Research Cloud. The code structure is inspired by various repos including (fast-DiT)[https://github.com/chuanyangjin/fast-DiT] and (DiT)[https://github.com/facebookresearch/DiT].
+This project is supported by resources provided by TPU Research Cloud. The code structure is inspired by various repos including [fast-DiT](https://github.com/chuanyangjin/fast-DiT) and [DiT](https://github.com/facebookresearch/DiT).
