@@ -1,9 +1,9 @@
-name: "DiT-XL"
+name: "DiT-L"
 
-depth: 28
-hidden_size: 1152
-patch_size: 1     # TODO: patch size can change based
-num_heads: 16
+depth: 12
+hidden_size: 768 
+patch_size: 1
+num_heads: 12
 
 attn_type: "jax"
 # For memory efficiency

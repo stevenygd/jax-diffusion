@@ -21,7 +21,7 @@ jax-diffusion
 
 Create envorionment by running:
 ```shell
-conda create -n jax-diff
+conda create -n jax-diff python=3.11
 conda activate jax-diff
 ```
 

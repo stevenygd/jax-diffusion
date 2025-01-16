@@ -867,7 +867,7 @@ class GaussianDiffusion:
             # NOTE: this is the default
             model_aux = {}
             model_output = model(x_t, t, **model_kwargs)
-            if "return_aux" in model_kwargs and model_kwargs["return_aux"]:
+            if "mutable" in model_kwargs and model_kwargs["mutable"] == "intermediates":
                 model_output, model_aux = model_output
 
             if self.model_var_type in [

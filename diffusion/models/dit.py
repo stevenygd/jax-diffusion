@@ -36,11 +36,8 @@ class DiTBlock(nn.Module):
     hidden_size: int
     num_heads: int
     mlp_ratio: float = 4.0
-    # rnn_dim: int = 128
-    # ssm_expansion: int = 2
     attn_kwargs: Optional[dict] = field(default_factory=dict)
-    attn_type: str = "torch"
-    n_experts: int = 8 
+    attn_type: str = "jax"
     grad_checkpoint_attn: bool = False
     grad_checkpoint_mlp: bool = False
     grad_checkpoint_adamlp: bool = False
@@ -129,11 +126,10 @@ class DiTBlock(nn.Module):
         c = self.concat_mlp(c)
         return jnp.array_split(c, 2, axis=-1)
        
-    def __call__(self, x, c, training: bool, return_aux: bool):
+    def __call__(self, x, c, training: bool):
         x = nn.with_logical_constraint(x, ("B", "N", "D"))
         c = nn.with_logical_constraint(c, ("B", "D"))
 
-        aux = {}
         inp_norm = jnp.square(x).mean() ** 0.5
         
         # Prepare conditioning type
@@ -141,11 +137,7 @@ class DiTBlock(nn.Module):
         
         # First conditioning
         x = modulate(self.norm1(x), shift_msa, scale_msa)
-        attn_out = self.attn(x, training, return_aux)
-        if return_aux:
-            attn_out, attn_aux = attn_out
-            aux.update(
-                {f"{self.attn.name}.{k}": v for k, v in attn_aux.items()})
+        attn_out = self.attn(x, training)
         attn_out_norm = jnp.square(attn_out).mean() ** 0.5
         x = x + gate_msa[:, None, ...] * attn_out
         x = nn.with_logical_constraint(x, ("B", "N", "D"))
@@ -162,21 +154,15 @@ class DiTBlock(nn.Module):
         out_norm = jnp.square(x).mean() ** 0.5
         x = nn.with_logical_constraint(x, ("B", "N", "D"))
         
-        aux.update({
-            "dit_block": {
-                "shift_msa": shift_msa.mean(),
-                "scale_msa": scale_msa.mean(),
-                "gate_msa": gate_msa.mean(),
-                "shift_mlp": shift_mlp.mean(),
-                "scale_mlp": scale_mlp.mean(),
-                "gate_mlp": gate_mlp.mean(),
-                "out_norm": out_norm,
-                "inp_norm": inp_norm,
-                "attn_out_norm": attn_out_norm,
-        }})
-        
-        if return_aux:
-            return x, aux 
+        self.sow('intermediates', "shift_msa", shift_msa.mean())
+        self.sow('intermediates', "scale_msa", scale_msa.mean())
+        self.sow('intermediates', "gate_msa", gate_msa.mean())
+        self.sow('intermediates', "shift_mlp", shift_mlp.mean())
+        self.sow('intermediates', "scale_mlp", scale_mlp.mean())
+        self.sow('intermediates', "gate_mlp", gate_mlp.mean())
+        self.sow('intermediates', "out_norm", out_norm)
+        self.sow('intermediates', "inp_norm", inp_norm)
+        self.sow('intermediates', "attn_out_norm", attn_out_norm)
         return x
   
  
@@ -187,12 +173,11 @@ class DiTBlockScan(DiTBlock):
       b8dab6e4de3436849415f37c591399c93b1eaf39/big_vision/models/vit.py#L79
     """
     
-    def __call__(self, x_c, training: bool, return_aux: bool):
+    def __call__(self, x_c, training: bool):
         x, c = x_c
-        out = super().__call__(x, c, training, return_aux)
-        x, aux = out if return_aux else (out, {})
+        x = super().__call__(x, c, training)
         out = (x, c)
-        return out, aux 
+        return out, {}
     
     
 class DiTBlockScanRemat(nn.Module):
@@ -204,7 +189,7 @@ class DiTBlockScanRemat(nn.Module):
         block_fn = nn.remat(
             DiTBlockScan, 
             prevent_cse=False,
-            static_argnums=(2, 3), # 0=self, 2=train, 3=return_aux
+            static_argnums=(2,), # 0=self, 2=train
             policy=jax.checkpoint_policies.nothing_saveable,
         )
         self.rollout_blocks = nn.scan(
@@ -216,9 +201,8 @@ class DiTBlockScanRemat(nn.Module):
             length=self.n_blocks
         )(**self.block_args)
         
-    def __call__(self, x_c, training: bool, return_aux: bool):
-        x_c, aux = self.rollout_blocks(x_c, training, return_aux)
-        return x_c, aux 
+    def __call__(self, x_c, training: bool):
+        return self.rollout_blocks(x_c, training)
 
 
 class FinalLayer(nn.Module):
@@ -376,7 +360,6 @@ class Model(nn.Module):
 
     # Attention parameters
     attn_type: str = "torch"
-    ssm_expansion: int = 2
     attn_kwargs: Optional[dict] = field(default_factory=dict)
     grad_checkpoint: bool = False
     dit_block_kwargs: Optional[dict] = field(default_factory=dict)
@@ -442,7 +425,7 @@ class Model(nn.Module):
                 block_fn = nn.remat(
                     DiTBlockScanRemat, 
                     prevent_cse=False,
-                    static_argnums=(2, 3), # 0=self, 2=train, 3=return_aux
+                    static_argnums=(2,), # 0=self, 1=x_c, 2=train
                     policy=jax.checkpoint_policies.nothing_saveable,
                 )
                 self.blocks = nn.scan(
@@ -461,7 +444,7 @@ class Model(nn.Module):
                 block_fn = nn.remat(
                     DiTBlockScan, 
                     prevent_cse=False,
-                    static_argnums=(2, 3), # 0=self, 2=train, 3=return_aux
+                    static_argnums=(2,), # 0=self, 1=x-c, 2=train
                     policy=jax.checkpoint_policies.nothing_saveable,
                 )
                 self.blocks = nn.scan(
@@ -483,8 +466,7 @@ class Model(nn.Module):
             )(**block_args)
         
 
-    def __call__(self, x, t, y, training: bool = False, 
-                 return_aux: bool = False):
+    def __call__(self, x, t, y, training: bool = False):
         """
         Forward pass of DiT.
         x: (N, C, H, W) tensor of spatial inputs (images or latent 
@@ -508,43 +490,10 @@ class Model(nn.Module):
         c = nn.with_logical_constraint(c, ("B", "D"))
         
         # Diffusions
-        aux_lst = []
-        moe_counts = []
-        moe_route_prob_sums = []
-        moe_gate_logits = []
-        
         assert len(self.skip_layers) == 0, "Scan doesn't support skip connections"
-        (x, _), scan_out = self.blocks((x, c), training, return_aux)
-        if self.scan_remat:
-            if return_aux:
-                for lyr in range(self.depth):
-                    idx_i = lyr // self.scan_remat_block_size
-                    idx_j = lyr % self.scan_remat_block_size
-                    aux_lst.append(
-                        jax.tree.map(lambda o, l=lyr: o[idx_i, idx_j], scan_out))
-                    aux = aux_lst[-1]
-        else:
-            if return_aux:
-                for lyr in range(self.depth):
-                    aux_lst.append(
-                        jax.tree.map(lambda o, l=lyr: o[l], scan_out))
-                    aux = aux_lst[-1]
-    
-
+        (x, _), _ = self.blocks((x, c), training)
         x = self.final_layer(x, c)      # (N, T, patch_size ** 2 * out_channels)
         x = self.unpatchify(x, c, xlst) # (N, out_channels, H, W)
-        if return_aux:
-            aux_dict = {"dit_blocks": aux_lst}
-            moe_info = {
-                'counts': jnp.stack(moe_counts) if moe_counts else None,
-                'route_prob_sums': jnp.stack(moe_route_prob_sums) if moe_route_prob_sums else None,
-                'gate_logits': jnp.stack(moe_gate_logits) if moe_gate_logits else None,
-                'experts': self.dit_block_kwargs.get('n_experts', None)
-            }
-            
-            aux_dict['moe'] = moe_info
-
-            return x, aux_dict
         return x
 
     def forward_with_cfg(self, x, t, y, cfg_scale, training: bool = False):

@@ -163,7 +163,7 @@ def make_train_step(args, model):
         model_kwargs = dict(
             training=True, y=y, 
             rngs={'dropout': rng_d, "label_emb": rng_l, "mt3": rng_mt3},
-            return_aux=args.return_aux)
+        )
         # [grads] are gradient averaged across current micro/mini batch
         (loss_val, all_aux), grads = jax.value_and_grad(
             loss_fn, has_aux=True)(

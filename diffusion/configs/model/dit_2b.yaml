@@ -1,22 +1,21 @@
-defaults:
-  - dit_xl
+name: "DiT-2B"
 
-name: "SSM-XL"
-attn_type: "ssm"
+depth: 24
+hidden_size: 2048
+patch_size: 1     # TODO: patch size can change based
+num_heads: 16
 
+attn_type: "jax"
 # For memory efficiency
 grad_checkpoint: True 
 scan_remat: False 
 scan_remat_block_size: 4
 dit_block_kwargs:
-  grad_checkpoint_attn: False
-  grad_checkpoint_mlp: True 
-  grad_checkpoint_adamlp: True 
+  grad_checkpoint_attn: False 
+  grad_checkpoint_mlp: False 
+  grad_checkpoint_adamlp: False 
   blockwise_mlp: False 
   blockwise_mlp_chunk_size: 1 
   # Mixed precision
   mlp_dtype: "bfloat16"
   adaln_mlp_dtype: "bfloat16"
-  attn_kwargs:
-    dtype: "bfloat16"
-

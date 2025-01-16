@@ -20,30 +20,32 @@ class S4DKernel(nn.Module):
     dt_min: float = 0.001
     dt_max: float = 0.1
     lr: float = 5e-5
-    seed: int = 0
 
     def setup(self):
         H = self.d_model
         N = self.N
 
-        # Use numpy for initialization to match PyTorch
-        rng = np.random.RandomState(self.seed)
-
         # Initialize log_dt
-        log_dt = rng.uniform(0, 1, (H,)) * (math.log(self.dt_max) - math.log(self.dt_min)) + math.log(self.dt_min)
-        self.log_dt = self.param('log_dt', lambda _: jnp.array(log_dt))
+        def _init_log_dt_(rng):
+            return jax.random.uniform(rng, shape=(H,)) * (
+                math.log(self.dt_max) - math.log(self.dt_min)
+            ) + math.log(self.dt_min)
+        self.log_dt = self.param('log_dt', _init_log_dt_)
 
         # Initialize C
-        C_real = rng.randn(H, N // 2)
-        C_imag = rng.randn(H, N // 2)
-        C = C_real + 1j * C_imag
-        self.C = self.param('C', lambda _: _c2r(jnp.array(C)))
+        def _init_c_(rng):
+            rng, spl = jax.random.split(rng)
+            C_real = jax.random.normal(spl, shape=(H, N // 2))
+            C_imag = jax.random.normal(rng, shape=(H, N // 2))
+            C = C_real + 1j * C_imag
+            return _c2r(jnp.array(C))
+        self.C = self.param('C', _init_c_)
 
         # Initialize A
-        log_A_real = jnp.log(0.5 * jnp.ones((H, N//2)))
-        A_imag = math.pi * repeat(jnp.arange(N//2), 'n -> h n', h=H)
-        
+        log_A_real = jnp.log(0.5 * jnp.ones((H, N // 2)))
         self.log_A_real = self.param('log_A_real', lambda _: log_A_real)
+
+        A_imag = math.pi * repeat(jnp.arange(N // 2), 'n -> h n', h=H)
         self.A_imag = self.param('A_imag', lambda _: A_imag)
 
     def __call__(self, L):
@@ -67,12 +69,19 @@ class S4D(nn.Module):
     transposed: bool = False
     kernel_args: Dict[str, Any] = field(default_factory=dict)
 
+    dt_min: float = 0.001
+    dt_max: float = 0.1
+    lr: float = 5e-5
+    
     def setup(self):
         self.h = self.d_model
         self.n = self.d_state
         self.d_output = self.h
         self.D = self.param('D', jax.random.normal, (self.h,))
-        self.kernel = S4DKernel(self.h, N=self.n, **self.kernel_args)
+        self.kernel = S4DKernel(
+            self.h, N=self.n, 
+            dt_min=self.dt_min, dt_max=self.dt_max, 
+            lr=self.lr)
 
     def __call__(self, u, train: bool = True):
         if not self.transposed:

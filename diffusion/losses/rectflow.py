@@ -58,7 +58,7 @@ class RectFlow():
         # v_t = model(psi_t, t, conditioning)
         model_aux = {}
         model_output = model(x_t, t, **model_kwargs)
-        if "return_aux" in model_kwargs and model_kwargs["return_aux"]:
+        if "mutable" in model_kwargs and model_kwargs["mutable"] == "intermediates":
             model_output, model_aux = model_output
         loss = ((model_output - x_1 + x_0) ** 2).mean()
         return {"mse": loss, "loss": loss}, t, model_aux

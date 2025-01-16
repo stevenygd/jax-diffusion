@@ -34,7 +34,7 @@ from jax.sharding import NamedSharding
 from jax.sharding import PartitionSpec as PS
 tf.config.experimental.set_visible_devices([], "GPU")
 tf.config.experimental.set_visible_devices([], "TPU")
-
+jax.default_matmul_precision = jnp.bfloat16
 
 if "WANDB_TEAM" in os.environ:
     WANDB_TEAM = os.environ["WANDB_TEAM"]

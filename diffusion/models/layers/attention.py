@@ -23,7 +23,7 @@ class JaxAttention(nn.Module):
     proj_drop: float = 0.
    
     @nn.compact 
-    def __call__(self, x, training: bool, return_aux: bool):
+    def __call__(self, x, training: bool):
         outs = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.dim,
@@ -33,10 +33,8 @@ class JaxAttention(nn.Module):
             bias_init=nn.initializers.zeros_init(),
             out_bias_init=nn.initializers.zeros_init(),
             deterministic=not training,
-            dropout_rate=self.attn_drop
+            dropout_rate=self.attn_drop,
         )(x)
-        if return_aux:
-            return outs, {}
         return outs
 
 
@@ -108,7 +106,7 @@ class LinearAttention(nn.Module):
         y = y.reshape(*y.shape[:2], -1)
         return y
 
-    def __call__(self, x, training: bool, return_aux: bool):
+    def __call__(self, x, training: bool):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim)
         qkv = qkv.transpose((2, 0, 3, 1, 4))  #shape=(3, B, #heads, N, head_dim)
@@ -123,8 +121,6 @@ class LinearAttention(nn.Module):
         x = self._linear_attention_(q, k, v)
         x = self.proj(x)
         x = self.proj_dropout(x, deterministic=not training)
-        if return_aux:
-            return x, {}
         return x
    
     
@@ -138,12 +134,8 @@ class S4DAttention(nn.Module):
    
     # SSM configs
     d_expansion: int = 1
-    # d_state: int = 64
-    # rnn_dim=128 outside, and d_state=self.rnn_dim
-    d_state: int = 128
     dropout_rate: float = 0.0
-    transposed: bool = False
-    kernel_args: Dict[str, Any] = field(default_factory=dict)
+    s4d_args: Dict[str, Any] = field(default_factory=dict)
     
     # Computation precision
     dtype: str = "float32"
@@ -188,8 +180,8 @@ class S4DAttention(nn.Module):
             bias_init=nn.initializers.zeros_init(),
         )
 
-        self.bssm = S4D(d_model=self.i, **self.kernel_args)
-        self.fssm = S4D(d_model=self.i, **self.kernel_args)
+        self.bssm = S4D(d_model=self.i, **self.s4d_args)
+        self.fssm = S4D(d_model=self.i, **self.s4d_args)
 
         self.dropout = nn.Dropout(rate=self.dropout_rate)
         # self.activation = nn.gelu
@@ -197,7 +189,7 @@ class S4DAttention(nn.Module):
     def activation(self, x):
         return nn.gelu(x.astype(jnp.float32))
 
-    def __call__(self, u, training: bool = False, return_aux: bool = False):
+    def __call__(self, u, training: bool = False):
         forward_u = self.activation(self.pre_fdense(u))
         backward_u = self.activation(self.pre_bdense(jnp.flip(u, axis=1)))
 
@@ -211,9 +203,6 @@ class S4DAttention(nn.Module):
         y = self.post_dense(y)
 
         y = self.dropout(y, deterministic=not training)
-
-        if return_aux:
-            return y, {}
 
         return y
     
@@ -433,7 +422,7 @@ class TTTAttention(nn.Module):
         else:
             self.proj_ln = lambda x: x
         
-    def __call__(self, x, training: bool, return_aux: bool = False):
+    def __call__(self, x, training: bool):
         """[x] B, N, C"""
         B, N, C = x.shape
         
@@ -464,7 +453,7 @@ class TTTAttention(nn.Module):
         v_flip = jnp.flip(v_b, axis=-2)
         vv = jnp.concat([v_f, v_flip], axis=-1)
         
-        x, aux = self.ttt(self.ttt_layer, xx, qq, kk, vv, position_ids)
+        x = self.ttt(self.ttt_layer, xx, qq, kk, vv, position_ids)
         
         # Combine forward and backward 
         xf, xb = jnp.split(x, 2, axis=-1)
@@ -476,8 +465,6 @@ class TTTAttention(nn.Module):
         x = self.proj(x)
         x = self.proj_dropout(x, deterministic=not training)
         x = x.astype(jnp.float32) # next layer will take float32
-        if return_aux:
-            return x, {"forward": aux, "backward": aux}
         return x
     
     
@@ -504,7 +491,7 @@ if __name__ == "__main__":
             # scale_qkv=jnp.sqrt(2),
             elu=False, normalizer="constant", scale_q=scale_q)
         rng, spl = jax.random.split(rng)
-        la_params = LA.init(spl, jnp.ones((B, N, D)), training=True, return_aux=False)
+        la_params = LA.init(spl, jnp.ones((B, N, D)), training=True)
         print("LA", la_params)
 
         MT3 = MTTTAttention(
@@ -514,7 +501,7 @@ if __name__ == "__main__":
         rng, spl2 = jax.random.split(rng)
         mt3_params = MT3.init(
             {"mt3": spl2, "params": spl}, 
-            jnp.ones((B, N, D)), training=True, return_aux=False,
+            jnp.ones((B, N, D)), training=True
         )
         print("MT3", mt3_params)
         
@@ -539,7 +526,7 @@ if __name__ == "__main__":
         vit3 = ViTTTAttention(dim=D, num_heads=H, ttt_cfg=ttt_cfg)
         vit3_params = vit3.init(
             {"params": spl}, jnp.ones((B, N, D)), training=True, 
-            return_aux=False)
+        )
         print("ViT3", vit3_params)
         
         vit3_la = ViTTTLinearAttention(
@@ -547,7 +534,7 @@ if __name__ == "__main__":
             elu=False, normalizer="constant", scale_q=scale_q)
         vit3_la_params = vit3_la.init(
             {"params": spl}, jnp.ones((B, N, D)), training=True, 
-            return_aux=False)
+        )
         print("ViT3LA", vit3_la_params)
         
         print("=" * 80) 
@@ -575,15 +562,15 @@ if __name__ == "__main__":
         print("=" * 80) 
         rng, spl = jax.random.split(rng)
         x = make_data(spl)
-        la_out = LA.apply(la_params, x, training=True, return_aux=False)
+        la_out = LA.apply(la_params, x, training=True)
         print("Out", la_out)
-        la_out2 = LA.apply(la_params, x, training=True, return_aux=False)
+        la_out2 = LA.apply(la_params, x, training=True)
         print("BETWEEN", err(la_out2, la_out))
         
         print('-' * 20, "MT3", '-' * 20)
         rng, spl = jax.random.split(rng)
         mt3_out, mt3_aux = MT3.apply(
-            mt3_params, x, training=True, return_aux=True,
+            mt3_params, x, training=True,
             rngs={"mt3": spl}
         ) 
         print("Out", mt3_out)
@@ -591,7 +578,7 @@ if __name__ == "__main__":
         
         rng, spl = jax.random.split(rng)
         mt3_out_2 = MT3.apply(
-            mt3_params, x, training=True, return_aux=False,
+            mt3_params, x, training=True,
             rngs={"mt3": spl}
         )
         print("BTM", err(mt3_out, mt3_out_2))
@@ -599,7 +586,7 @@ if __name__ == "__main__":
         
         print('-' * 20, "VIT3", '-' * 20)
         vit3_out = vit3.apply(
-            vit3_params, x, training=True, return_aux=False,
+            vit3_params, x, training=True,
             rngs={"idx": spl}
         )
         print("OUT", vit3_out)
@@ -607,7 +594,7 @@ if __name__ == "__main__":
         
         print('-' * 20, "VIT3-LA", '-' * 20)
         vit3_la_out = vit3_la.apply(
-            vit3_la_params, x, training=True, return_aux=False,
+            vit3_la_params, x, training=True,
             rngs={"idx": spl}
         )
         print("OUT", vit3_la_out)
@@ -618,34 +605,7 @@ if __name__ == "__main__":
         print("Cross parameter testing")
         print("=" * 80) 
         rng, spl = jax.random.split(rng)
-        la_out_3 = LA.apply(mt3_params, x, training=True, return_aux=False)
+        la_out_3 = LA.apply(mt3_params, x, training=True)
         print("LA-MT params v.s. LA-LA params", err(la_out_3, la_out))
         print("LA-MT params v.s. MT-MT params", err(la_out_3, mt3_out_2))
-        
-        # print("=" * 80) 
-        # print("Gradient") 
-        # print("=" * 80) 
-        # def loss_la(params, x):
-        #     out = LA.apply(params, x, training=False, return_aux=False)
-        #     return jnp.square(out).mean()
-        # grads_la = jax.grad(loss_la)(la_params, x)
-        # print("LA :\n", grads_la["params"])
-        
-        # def loss_mt3(params, x):
-        #     out = MT3.apply(
-        #         params, x, training=False, return_aux=False, rngs={"mt3": spl})
-        #     return jnp.square(out).mean()
-        # grads_mt3 = jax.grad(loss_mt3)(mt3_params, x)
-        # qkv_params = {
-        #     k: v for k, v in grads_mt3["params"].items() 
-        #     if k in grads_la["params"].keys()}
-        # print("MT3 KQV:\n", qkv_params)
-        # print(
-        #     "MT3 KQV error:\n\t", 
-        #     jax.tree_util.tree_map(err, qkv_params, grads_la["params"])
-        # )
-        
-        # print("MT3 attn:\n", 
-        #     {k: v for k, v in grads_mt3["params"].items() 
-        #     if k not in grads_la["params"].keys()})
         

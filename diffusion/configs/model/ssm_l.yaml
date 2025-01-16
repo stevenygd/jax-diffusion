@@ -3,20 +3,21 @@ defaults:
 
 name: "SSM-L"
 attn_type: "ssm"
-attn_kwargs:
-  d_expansion: 1
-  d_state: 256 
 
 # For memory efficiency
-grad_checkpoint: True 
-scan_remat: True 
+grad_checkpoint: False 
+scan_remat: False 
 scan_remat_block_size: 4
 dit_block_kwargs:
-  grad_checkpoint_attn: False 
-  grad_checkpoint_mlp: False 
-  grad_checkpoint_adamlp: False 
+  grad_checkpoint_attn: False
+  grad_checkpoint_mlp: True
+  grad_checkpoint_adamlp: True 
   blockwise_mlp: False 
   blockwise_mlp_chunk_size: 1 
   # Mixed precision
   mlp_dtype: "bfloat16"
   adaln_mlp_dtype: "bfloat16"
+  attn_kwargs:
+    dtype: "bfloat16"
+    s4d_args:
+      d_state: 32

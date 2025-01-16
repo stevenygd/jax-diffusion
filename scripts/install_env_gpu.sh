@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Install python dependency
-pip install -U "jax[cuda12]"
+pip install -U "jax[cuda12]==4.3.31"
 pip install --upgrade tensorflow-cpu
 pip install --upgrade tensorflow-datasets
 pip install --upgrade hydra-core
